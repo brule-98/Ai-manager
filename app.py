@@ -16,7 +16,7 @@ from modules.workspace import render_workspace
 from modules.dashboard import render_dashboard
 from modules.rettifiche import render_rettifiche
 from modules.configurazione import render_configurazione
-from modules.sentinel import render_sentinel, count_alerts
+from modules.sentinel import render_sentinel
 from modules.ai_cfo import render_ai_cfo
 
 
