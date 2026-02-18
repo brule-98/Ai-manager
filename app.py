@@ -1,106 +1,24 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="AI-Manager | Controllo di Gestione",
+    page_title="AI-Manager | Intelligence Gestionale",
     layout="wide",
     initial_sidebar_state="expanded",
     page_icon="📊"
 )
 
-# ─── STILE GLOBALE ────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Serif+Display&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif !important;
-    background-color: #F8F9FB;
-}
-.main-header {
-    background: linear-gradient(135deg, #0F2044 0%, #1A3A7A 100%);
-    color: white;
-    padding: 1.1rem 2rem;
-    border-radius: 0 0 16px 16px;
-    margin-bottom: 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-.main-header h1 { font-family: 'DM Serif Display', serif; font-size: 1.5rem; margin: 0; color: white !important; }
-.main-header .subtitle { font-size: 0.76rem; color: #90AEE8; margin: 2px 0 0 0; }
-.badge-tenant {
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 20px;
-    padding: 5px 16px;
-    font-size: 0.75rem;
-    color: white;
-}
-.metric-card {
-    background: white;
-    border-radius: 12px;
-    padding: 1.1rem 1.4rem;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.07);
-    border-left: 4px solid #1A3A7A;
-    margin-bottom: 12px;
-}
-.metric-card .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: #8896AB; font-weight: 600; }
-.metric-card .value { font-size: 1.55rem; font-weight: 600; color: #0F2044; margin-top: 3px; }
-.delta-pos { color: #059669; font-size: 0.78rem; }
-.delta-neg { color: #DC2626; font-size: 0.78rem; }
-.section-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; color: #8896AB; font-weight: 700; margin: 1.5rem 0 0.8rem 0; }
-[data-testid="stSidebar"] { background: #0F2044 !important; }
-[data-testid="stSidebar"] label { color: #CBD5E8 !important; }
-[data-testid="stSidebar"] .stSelectbox label { color: #CBD5E8 !important; }
-[data-testid="stSidebar"] p, [data-testid="stSidebar"] span { color: #CBD5E8 !important; }
-[data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color: white !important; }
-[data-testid="stSidebar"] .stButton > button {
-    background: rgba(255,255,255,0.08);
-    color: white !important;
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 8px;
-    font-weight: 400;
-    font-size: 0.85rem;
-    text-align: left;
-}
-[data-testid="stSidebar"] .stButton > button:hover {
-    background: rgba(255,255,255,0.16) !important;
-    transform: none;
-    box-shadow: none;
-}
-.stButton > button {
-    background: #1A3A7A;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-.stButton > button:hover {
-    background: #0F2044;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(15,32,68,0.2);
-}
-.stTabs [data-baseweb="tab-list"] { gap: 6px; border-bottom: 2px solid #E2E8F0; }
-.stTabs [data-baseweb="tab"] {
-    background: transparent; border-radius: 8px 8px 0 0;
-    font-weight: 500; font-size: 0.84rem; color: #64748B; padding: 10px 18px;
-}
-.stTabs [aria-selected="true"] {
-    background: #EEF2FF !important; color: #1A3A7A !important;
-    border-bottom: 3px solid #1A3A7A !important;
-}
-#MainMenu, footer, header { visibility: hidden; }
-.block-container { padding-top: 0 !important; }
-div[data-testid="stExpander"] { background: white; border-radius: 10px; border: 1px solid #E2E8F0; }
-</style>
-""", unsafe_allow_html=True)
+from services.styles import GLOBAL_CSS
+st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 
 from auth.login import render_login
+from modules.onboarding import render_onboarding, is_onboarding_complete
 from modules.workspace import render_workspace
 from modules.dashboard import render_dashboard
 from modules.rettifiche import render_rettifiche
 from modules.configurazione import render_configurazione
+from modules.sentinel import render_sentinel, count_alerts
+from modules.ai_cfo import render_ai_cfo
+
 
 # ─── INIT SESSION STATE ────────────────────────────────────────────────────────
 def init_state():
@@ -112,6 +30,9 @@ def init_state():
         'clienti': {},
         'cliente_attivo': None,
         'page': 'Dashboard',
+        'sito_attivo': 'Globale',
+        'company_profile': {},
+        'onboarding_done': False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -119,86 +40,157 @@ def init_state():
 
 init_state()
 
+# ─── AUTH GATE ────────────────────────────────────────────────────────────────
 if not st.session_state['authenticated']:
     render_login()
     st.stop()
 
-# ─── HEADER ───────────────────────────────────────────────────────────────────
-user = st.session_state['user']
+# ─── ONBOARDING GATE ──────────────────────────────────────────────────────────
+if not st.session_state.get('onboarding_done'):
+    render_onboarding()
+    st.stop()
+
+# ─── HELPERS ──────────────────────────────────────────────────────────────────
+user   = st.session_state['user']
 tenant = st.session_state['tenant']
-role = st.session_state['role']
-role_label = '🏢 Studio Professionale' if role == 'professionista' else '👔 Azienda'
+role   = st.session_state['role']
+ca     = st.session_state.get('cliente_attivo')
+cliente = st.session_state.get('clienti', {}).get(ca, {}) if ca else {}
+
+# Conta alert sentinel
+n_alerts = 0
+if cliente.get('df_db') is not None and cliente.get('mapping'):
+    try:
+        from modules.sentinel import _compute_alerts
+        alerts = _compute_alerts(cliente)
+        n_alerts = len(alerts)
+    except Exception:
+        pass
+
+# ─── HEADER ───────────────────────────────────────────────────────────────────
+profile = st.session_state.get('company_profile', {})
+company_name = profile.get('nome_azienda', tenant)
+role_label   = '🏢 Studio' if role == 'professionista' else '👔 Azienda'
+alert_badge  = f'<span class="header-badge header-badge-alert">🔔 {n_alerts} alert</span>' if n_alerts > 0 else ''
 
 st.markdown(f"""
-<div class="main-header">
-    <div>
+<div class="app-header">
+    <div class="app-header-brand">
         <h1>📊 AI-Manager</h1>
-        <p class="subtitle">Piattaforma Professionale di Controllo di Gestione</p>
+        <p class="tagline">Enterprise Intelligence Gestionale</p>
     </div>
-    <div class="badge-tenant">👤 {user} &nbsp;·&nbsp; {tenant} &nbsp;·&nbsp; {role_label}</div>
+    <div class="app-header-right">
+        {alert_badge}
+        <span class="header-badge">{role_label} · {company_name}</span>
+        <span class="header-badge" style="opacity:0.7; font-size:0.68rem;">👤 {user}</span>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
 # ─── SIDEBAR ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📁 Clienti")
 
+    # ── CLIENTE ──────────────────────────────────────────────────
+    st.markdown("#### 📁 Cliente")
     clienti = list(st.session_state['clienti'].keys())
 
     if clienti:
-        idx_default = 0
-        if st.session_state['cliente_attivo'] in clienti:
-            idx_default = clienti.index(st.session_state['cliente_attivo'])
-        cliente_sel = st.selectbox("Cliente attivo:", clienti, index=idx_default)
-        st.session_state['cliente_attivo'] = cliente_sel
+        idx_default = clienti.index(ca) if ca in clienti else 0
+        cliente_sel = st.selectbox("", clienti, index=idx_default, key="sel_cliente",
+                                    label_visibility="collapsed")
+        if cliente_sel != ca:
+            st.session_state['cliente_attivo'] = cliente_sel
+            st.session_state['sito_attivo'] = 'Globale'
+            st.rerun()
     else:
-        st.caption("Nessun cliente caricato")
-        st.session_state['cliente_attivo'] = None
+        st.caption("Nessun cliente")
 
     if role == 'professionista':
-        with st.expander("➕ Aggiungi cliente"):
-            nuovo = st.text_input("Nome cliente:", key="nuovo_cliente_input")
-            if st.button("Crea", key="btn_crea_cliente"):
+        with st.expander("➕ Nuovo cliente"):
+            nuovo = st.text_input("", placeholder="Nome cliente", key="nuovo_cliente_input",
+                                   label_visibility="collapsed")
+            if st.button("Crea", key="btn_crea"):
                 nome = nuovo.strip()
                 if nome and nome not in st.session_state['clienti']:
                     st.session_state['clienti'][nome] = {
                         'df_piano': None, 'df_db': None, 'df_ricl': None,
-                        'rettifiche': [], 'mapping': {}, 'schemi': {},
-                        'schema_attivo': None
+                        'rettifiche': [], 'mapping': {}, 'mapping_staging': None,
+                        'schemi': {}, 'schema_attivo': None, 'budget': None
                     }
                     st.session_state['cliente_attivo'] = nome
                     st.rerun()
     else:
-        # Azienda: crea automaticamente un cliente col proprio nome se non esiste
         if tenant not in st.session_state['clienti']:
             st.session_state['clienti'][tenant] = {
                 'df_piano': None, 'df_db': None, 'df_ricl': None,
-                'rettifiche': [], 'mapping': {}, 'schemi': {},
-                'schema_attivo': None
+                'rettifiche': [], 'mapping': {}, 'mapping_staging': None,
+                'schemi': {}, 'schema_attivo': None, 'budget': None
             }
             st.session_state['cliente_attivo'] = tenant
 
+    # ── MULTI-SITE SELECTOR ───────────────────────────────────────
+    cliente_data = st.session_state.get('clienti', {}).get(
+        st.session_state.get('cliente_attivo', ''), {}
+    )
+    df_db_curr = cliente_data.get('df_db')
+
+    siti_disponibili = ['Globale']
+    if df_db_curr is not None:
+        from services.data_utils import find_column
+        col_sito = find_column(df_db_curr, ['Sito', 'sito', 'Stabilimento', 'stabilimento', 'Site', 'Plant'])
+        if col_sito:
+            siti = sorted(df_db_curr[col_sito].dropna().astype(str).unique().tolist())
+            siti_disponibili = ['Globale'] + siti
+
+    if len(siti_disponibili) > 1:
+        st.markdown("#### 🏭 Sito / Stabilimento")
+        sito_sel = st.selectbox("", siti_disponibili,
+                                 index=siti_disponibili.index(st.session_state.get('sito_attivo', 'Globale'))
+                                 if st.session_state.get('sito_attivo') in siti_disponibili else 0,
+                                 key="sel_sito", label_visibility="collapsed")
+        st.session_state['sito_attivo'] = sito_sel
+        if sito_sel != 'Globale':
+            st.markdown(f'<span class="sentinel-badge badge-info">🔍 Filtro: {sito_sel}</span>',
+                        unsafe_allow_html=True)
+
+    # ── NAVIGAZIONE ───────────────────────────────────────────────
     st.markdown("---")
-    st.markdown("## 🧭 Menu")
+    st.markdown("#### 🧭 Navigazione")
 
     nav_items = [
-        ("📊", "Dashboard", "Dashboard"),
-        ("🗂️", "Workspace Dati", "Workspace"),
-        ("✏️", "Rettifiche", "Rettifiche"),
-        ("⚙️", "Configurazione", "Configurazione"),
+        ("📊", "Dashboard"),
+        ("🗂️", "Workspace"),
+        ("🔔", f"Sentinel {'('+str(n_alerts)+')' if n_alerts else ''}"),
+        ("🤖", "AI CFO"),
+        ("✏️", "Rettifiche"),
+        ("⚙️", "Configurazione"),
+        ("🏢", "Profilo"),
     ]
-    for icon, label, key in nav_items:
-        is_active = st.session_state['page'] == key
-        btn_label = f"{'▶ ' if is_active else ''}{icon} {label}"
-        if st.button(btn_label, key=f"nav_{key}", use_container_width=True):
-            st.session_state['page'] = key
+
+    page = st.session_state.get('page', 'Dashboard')
+
+    for icon, label in nav_items:
+        base_key = label.split(' ')[0] if '(' in label else label
+        is_active = page == base_key
+
+        css_class = "nav-btn-active" if is_active else "nav-btn"
+        st.markdown(f'<div class="{css_class}">', unsafe_allow_html=True)
+        if st.button(f"{icon}  {label}", key=f"nav_{base_key}", use_container_width=True):
+            st.session_state['page'] = base_key
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
     if st.button("🚪 Logout", use_container_width=True, key="btn_logout"):
         for k in list(st.session_state.keys()):
             del st.session_state[k]
         st.rerun()
+
+    st.markdown("""
+    <div style='padding: 12px 0; text-align:center;'>
+        <span style='font-size:0.65rem; color:#4A5568; letter-spacing:1px;'>AI-MANAGER v2.0 ENTERPRISE</span>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ─── ROUTER ───────────────────────────────────────────────────────────────────
 page = st.session_state.get('page', 'Dashboard')
@@ -207,7 +199,13 @@ if page == 'Dashboard':
     render_dashboard()
 elif page == 'Workspace':
     render_workspace()
+elif page == 'Sentinel':
+    render_sentinel()
+elif page == 'AI CFO':
+    render_ai_cfo()
 elif page == 'Rettifiche':
     render_rettifiche()
 elif page == 'Configurazione':
     render_configurazione()
+elif page == 'Profilo':
+    render_onboarding(edit_mode=True)
