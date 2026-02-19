@@ -51,15 +51,22 @@ html, body, [class*="css"] {
     border: 1px solid transparent !important;
     border-radius: 8px !important;
     font-size: 0.83rem !important;
+    font-weight: 500 !important;
     text-align: left !important;
-    transition: all 0.15s !important;
+    padding: 9px 12px !important;
     width: 100% !important;
     margin-bottom: 2px !important;
+    transition: all 0.15s !important;
+    justify-content: flex-start !important;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
     background: rgba(255,255,255,0.05) !important;
-    color: #E2E8F0 !important;
+    color: #CBD5E1 !important;
     border-color: rgba(255,255,255,0.08) !important;
+}
+[data-testid="stSidebar"] .stButton > button p {
+    text-align: left !important;
+    font-size: 0.83rem !important;
 }
 
 /* ── Main buttons ── */
@@ -329,28 +336,46 @@ with st.sidebar:
     st.markdown("<hr style='border-color:rgba(255,255,255,0.06);margin:16px 0 12px'>", unsafe_allow_html=True)
 
     # ── Navigazione ──────────────────────────────────────────────────────────
-    st.markdown("**🧭 Navigazione**")
+    page_cur = st.session_state.get('page', 'Dashboard')
 
-    nav = [
-        ("📊", "Dashboard",       "Dashboard",       "Vista KPI, CE, Grafici"),
-        ("🗂️", "Workspace",       "Workspace",       "Carica dati e mappatura"),
-        ("🏦", "CFO Agent",       "CFO Agent",       "AI • Chat • Report • Alert"),
-        ("🎯", "Budget",          "Budget",          "Budget e scostamenti"),
-        ("✏️", "Rettifiche",     "Rettifiche",      "Rettifiche extra-contabili"),
-        ("⚙️", "Configurazione", "Configurazione",  "Schema di riclassifica"),
+    NAV = [
+        ("📊  Dashboard",      "Dashboard"),
+        ("🗂️  Workspace",      "Workspace"),
+        ("🏦  CFO Agent",      "CFO Agent"),
+        ("🎯  Budget",         "Budget"),
+        ("✏️  Rettifiche",    "Rettifiche"),
+        ("⚙️  Configurazione","Configurazione"),
     ]
 
-    page_cur = st.session_state.get('page', 'Dashboard')
-    for icon, label, key, hint in nav:
-        is_active = page_cur == key
-        prefix = "▶ " if is_active else "    "
-        style = "font-weight:600;" if is_active else ""
-        if st.button(f"{prefix}{icon} {label}", key=f"nav_{key}", use_container_width=True,
-                     help=hint):
-            st.session_state['page'] = key
-            st.rerun()
+    # Inject active-state CSS for the current page button
+    active_styles = ""
+    for i, (_, pg) in enumerate(NAV):
+        if pg == page_cur:
+            # nth-child won't work reliably; use a wrapper div trick
+            # Instead we inject per-button style via a unique key marker
+            active_styles += (
+                "/* active nav item */"
+            )
 
-    st.markdown("<hr style='border-color:rgba(255,255,255,0.06);margin:12px 0'>", unsafe_allow_html=True)
+    # Build nav section with label above + styled button
+    st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
+    for btn_label, page_key in NAV:
+        active = (page_cur == page_key)
+        if active:
+            st.markdown(
+                "<div style='background:rgba(201,168,76,0.08);"
+                "border:1px solid rgba(201,168,76,0.22);"
+                "border-radius:8px;margin-bottom:2px;"
+                "overflow:hidden'>",
+                unsafe_allow_html=True
+            )
+        if st.button(btn_label, key="nav_" + page_key, use_container_width=True):
+            st.session_state['page'] = page_key
+            st.rerun()
+        if active:
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("<hr style='border-color:rgba(255,255,255,0.06);margin:12px 0'>", unsafe_allow_html=True)
 
     # ── Info cliente attivo ────────────────────────────────────────────────
     ca = st.session_state.get('cliente_attivo')
