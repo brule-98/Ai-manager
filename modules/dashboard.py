@@ -43,6 +43,9 @@ def render_dashboard():
     schema_att = cliente.get('schema_attivo', '')
     schema_cfg = cliente.get('schemi', {}).get(schema_att, {})
 
+    from services.riclassifica import get_label_map
+    label_map = get_label_map(df_ricl) if df_ricl is not None else {}
+
     if df_db is None or df_piano is None or df_ricl is None:
         st.markdown(f"""
         <div style='background:#EEF2FF;border-left:4px solid #1A3A7A;padding:16px 20px;
@@ -133,7 +136,7 @@ def render_dashboard():
     tab_ce, tab_grafici, tab_budget = st.tabs(["📋 Conto Economico", "📈 Grafici & Analisi", "🎯 Budget"])
 
     with tab_ce:
-        _render_tabella_ce(ca, pf, dettaglio, cols_filtro, pf_conf, anno_conf, mostra_bud, budget, mesi_filtro)
+        _render_tabella_ce(ca, pf, dettaglio, cols_filtro, pf_conf, anno_conf, mostra_bud, budget, mesi_filtro, mapping, label_map)
 
     with tab_grafici:
         _render_grafici(pivot, mesi, kpi)
@@ -193,7 +196,7 @@ def _render_kpi_cards(kpi, kpi_conf, anno_conf):
 # TABELLA CE — 2 livelli con drill-down
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _render_tabella_ce(ca, pf, dettaglio, cols_filtro, pf_conf, anno_conf, mostra_bud, budget, mesi_filtro):
+def _render_tabella_ce(ca, pf, dettaglio, cols_filtro, pf_conf, anno_conf, mostra_bud, budget, mesi_filtro, mapping=None, label_map=None):
     st.markdown("### 📋 Conto Economico Riclassificato")
     st.markdown("""
     <div style='font-size:0.79rem;color:#6B7280;margin-bottom:16px;padding:10px 14px;
@@ -245,11 +248,19 @@ def _render_tabella_ce(ca, pf, dettaglio, cols_filtro, pf_conf, anno_conf, mostr
 
             # Dettaglio conti
             if voce in dettaglio and not dettaglio[voce].empty:
-                st.markdown("**Dettaglio per conto:**")
                 det = dettaglio[voce]
                 cols_det = [c for c in cols_filtro if c in det.columns] + ['TOTALE']
                 det_show = det[[c for c in cols_det if c in det.columns]].copy()
-                det_show_fmt = det_show.applymap(lambda x: fmt(x) if isinstance(x, (int, float)) else str(x))
+                # Mostra conti mappati a questa voce (anche con saldo zero)
+                conti_mappati = [c for c, v in mapping.items() if v and label_map.get(str(v), str(v)) == voce]
+                n_con_mov   = len(det_show)
+                n_senza_mov = max(0, len(conti_mappati) - n_con_mov)
+                st.markdown(f"<div style='font-size:0.78rem;color:#4A5568;margin-bottom:6px'>"
+                            f"<b style='color:#1A202C'>Dettaglio per conto:</b> "
+                            f"{n_con_mov} con movimenti"
+                            f"{f' · <span style=color:#F59E0B>{n_senza_mov} senza movimenti nel periodo</span>' if n_senza_mov > 0 else ''}"
+                            f"</div>", unsafe_allow_html=True)
+                det_show_fmt = det_show.apply(lambda col: col.map(lambda x: fmt(x) if isinstance(x, (int, float)) else str(x)))
                 st.dataframe(
                     det_show_fmt,
                     use_container_width=True,
