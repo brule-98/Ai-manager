@@ -122,8 +122,11 @@ div[data-testid="stExpander"]:hover {
     background: white;
     border-radius: 10px;
     padding: 14px 18px;
-    box-shadow: 0 1px 6px rgba(0,0,0,.06);
+    box-shadow: 0 1px 6px rgba(0,0,0,.08);
+    border: 1px solid #E2E8F0;
 }
+[data-testid="stMetric"] label { color: #4A5568 !important; font-weight: 600 !important; }
+[data-testid="stMetricValue"] { color: #1A202C !important; }
 
 /* ── Progress bar ── */
 .stProgress > div > div > div {
@@ -137,17 +140,38 @@ div[data-testid="stExpander"]:hover {
     overflow: hidden;
 }
 
-/* ── Input fields ── */
+/* ── Input fields: dark text on light bg ── */
 .stTextInput input, .stTextArea textarea, .stNumberInput input {
-    border: 1px solid #E2E8F0 !important;
+    background: white !important;
+    color: #1A202C !important;
+    border: 1px solid #CBD5E0 !important;
     border-radius: 8px !important;
     font-family: 'DM Sans', sans-serif !important;
-    transition: border-color 0.15s !important;
 }
 .stTextInput input:focus, .stTextArea textarea:focus, .stNumberInput input:focus {
     border-color: #1A3A7A !important;
-    box-shadow: 0 0 0 3px rgba(26,58,122,0.1) !important;
+    box-shadow: 0 0 0 3px rgba(26,58,122,0.12) !important;
 }
+.stTextInput label, .stTextArea label, .stNumberInput label,
+.stSelectbox label, .stRadio label, .stCheckbox label,
+.stFileUploader label, .stSlider label {
+    color: #2D3748 !important;
+    font-weight: 500 !important;
+}
+.stSelectbox > div > div {
+    background: white !important;
+    color: #1A202C !important;
+    border: 1px solid #CBD5E0 !important;
+    border-radius: 8px !important;
+}
+.stRadio > div { color: #2D3748 !important; }
+div[data-testid="stExpander"] summary { color: #1A202C !important; font-weight: 600 !important; }
+div[data-testid="stExpander"] p, div[data-testid="stExpander"] span { color: #2D3748 !important; }
+[data-testid="stAlert"] p { color: #1A202C !important; }
+.stCaption, [data-testid="stCaptionContainer"] { color: #718096 !important; }
+[data-testid="stFileUploader"] span { color: #4A5568 !important; }
+.stTabs [data-baseweb="tab"] { color: #4A5568 !important; }
+.stTabs [aria-selected="true"] { color: #1A3A7A !important; }
 
 /* ── Hide Streamlit branding ── */
 #MainMenu, footer, header { visibility: hidden; }
@@ -155,9 +179,9 @@ div[data-testid="stExpander"]:hover {
 
 /* ── Scrollbars (webkit) ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #CBD5E8; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+::-webkit-scrollbar-track { background: #F0F4F8; }
+::-webkit-scrollbar-thumb { background: #A0AEC0; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #718096; }
 </style>
 """, unsafe_allow_html=True)
 
