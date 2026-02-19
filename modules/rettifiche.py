@@ -1,3 +1,4 @@
+"""rettifiche.py — Rettifiche extra-contabili."""
 import streamlit as st
 import pandas as pd
 from services.data_utils import get_cliente, save_cliente, find_column, fmt_eur
@@ -6,175 +7,126 @@ from services.data_utils import get_cliente, save_cliente, find_column, fmt_eur
 def render_rettifiche():
     ca = st.session_state.get('cliente_attivo')
     if not ca:
-        st.warning("⚠️ Seleziona un cliente dalla sidebar.")
-        return
-
-    cliente = get_cliente()
+        st.warning("⚠️ Seleziona un cliente dalla sidebar."); return
+    cliente  = get_cliente()
     df_piano = cliente.get('df_piano')
-    rettifiche = cliente.get('rettifiche', [])
+    retts    = cliente.get('rettifiche', [])
 
-    st.markdown(f"## ✏️ Rettifiche Extra-Contabili — {ca}")
+    st.markdown(f"""
+    <div style='margin-bottom:20px'>
+        <div style='font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#C9A84C;font-weight:700;margin-bottom:4px'>Rettifiche Extra-Contabili</div>
+        <div style='font-size:1.4rem;font-weight:700;color:#F1F5F9'>✏️ {ca}</div>
+        <div style='font-size:0.8rem;color:#475569'>Scritture di rettifica che non modificano il DB contabile originale</div>
+    </div>""", unsafe_allow_html=True)
+
     st.markdown("""
-    <div style='background:#EEF2FF; border-left:4px solid #7C3AED; padding:12px 16px; border-radius:6px; font-size:0.85rem; margin-bottom:1.2rem;'>
-    Le rettifiche extra-contabili sono scritture di aggiustamento che vengono sommate al DB contabile
-    senza modificare i dati originali. Utili per ratei, risconti, rettifiche di fine periodo o simulazioni.
-    </div>
-    """, unsafe_allow_html=True)
+    <div style='background:rgba(139,92,246,0.06);border-left:3px solid #8B5CF6;
+                border-radius:0 10px 10px 0;padding:12px 16px;font-size:0.83rem;color:#64748B;margin-bottom:20px'>
+    Le rettifiche sono sommate ai dati contabili <strong style='color:#E2E8F0'>senza modificare i file originali</strong>.
+    Attivabili/disattivabili singolarmente per simulazioni e analisi what-if.
+    </div>""", unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["➕ Nuova Rettifica", "📋 Rettifiche Inserite"])
+    tab1, tab2 = st.tabs(["➕ Nuova Rettifica", "📋 Elenco Rettifiche"])
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # TAB 1: NUOVA RETTIFICA
-    # ══════════════════════════════════════════════════════════════════════════
     with tab1:
-        st.markdown("### Inserimento Rettifica")
-
-        if df_piano is None:
-            st.warning("⚠️ Carica prima il Piano dei Conti nel Workspace per selezionare i conti.")
-            # Permetti inserimento manuale come fallback
-            conto_options = []
-            use_manual = True
-        else:
-            col_cod = find_column(df_piano, ['Codice', 'codice', 'codice conto', 'Codice Conto', 'CODICE', 'Conto', 'conto'])
-            col_desc = find_column(df_piano, ['Descrizione', 'descrizione', 'conto', 'Conto', 'Nome', 'nome'])
+        # Costruisci opzioni conto
+        if df_piano is not None:
+            col_cod  = find_column(df_piano, ['Codice','codice','CodConto','Conto','conto'])
+            col_desc = find_column(df_piano, ['Descrizione','descrizione','Nome','nome','Conto','conto'])
             if col_cod:
-                if col_desc:
-                    conto_options = [f"{r[col_cod]} — {r[col_desc]}" for _, r in df_piano.iterrows()]
-                    conto_map = {f"{r[col_cod]} — {r[col_desc]}": str(r[col_cod]) for _, r in df_piano.iterrows()}
+                if col_desc and col_desc != col_cod:
+                    opts = [f"{r[col_cod]} — {r[col_desc]}" for _, r in df_piano.iterrows()]
+                    cod_map = {f"{r[col_cod]} — {r[col_desc]}": str(r[col_cod]) for _, r in df_piano.iterrows()}
                 else:
-                    conto_options = df_piano[col_cod].astype(str).tolist()
-                    conto_map = {v: v for v in conto_options}
-                use_manual = False
+                    opts = df_piano[col_cod].astype(str).tolist()
+                    cod_map = {v: v for v in opts}
+                use_select = True
             else:
-                conto_options = []
-                use_manual = True
+                use_select = False; opts = []; cod_map = {}
+        else:
+            use_select = False; opts = []; cod_map = {}
 
-        with st.form("form_rettifica", clear_on_submit=True):
+        with st.form("form_rett", clear_on_submit=True):
             c1, c2 = st.columns(2)
-
             with c1:
-                if use_manual or not conto_options:
-                    conto_input = st.text_input("Conto *", placeholder="es. 700001")
-                    conto_sel = conto_input
-                    conto_cod = conto_input
+                if use_select and opts:
+                    conto_sel = st.selectbox("Conto *", opts, key="rtt_conto")
+                    conto_cod = cod_map.get(conto_sel, conto_sel)
                 else:
-                    conto_sel = st.selectbox("Conto *", conto_options, key="rtt_conto_sel")
-                    conto_cod = conto_map.get(conto_sel, conto_sel)
-
-                descrizione = st.text_input("Descrizione *", placeholder="es. Rateo attivo interesse maturato")
-                data_rtt = st.date_input("Data competenza")
-
-            with c2:
-                importo = st.number_input(
-                    "Importo (€) *",
-                    value=0.0,
-                    step=100.0,
-                    format="%.2f",
-                    help="Positivo = aumento del saldo / Negativo = riduzione del saldo"
-                )
-                note = st.text_area("Note", placeholder="Dettaglio o riferimento documentale...", height=80)
-
-                tipo = st.selectbox("Tipo rettifica:", [
-                    "Rateo attivo", "Rateo passivo", "Risconto attivo", "Risconto passivo",
-                    "Ammortamento extracontabile", "Accantonamento", "Altro"
+                    conto_cod = st.text_input("Conto *", placeholder="es. 700001", key="rtt_conto_m")
+                    conto_sel = conto_cod
+                desc_rtt = st.text_input("Descrizione *", placeholder="es. Rateo attivo interessi")
+                tipo_rtt = st.selectbox("Tipo:", [
+                    "Rateo attivo","Rateo passivo","Risconto attivo","Risconto passivo",
+                    "Ammortamento extracontabile","Accantonamento","Simulazione","Altro"
                 ])
+            with c2:
+                importo = st.number_input("Importo (€) *", value=0.0, step=100.0,
+                                           format="%.2f",
+                                           help="+pos aumenta il saldo, -neg lo riduce")
+                data_rtt = st.date_input("Data competenza")
+                note_rtt = st.text_area("Note", height=68, placeholder="Riferimento documentale…")
 
-            st.markdown("---")
-            submitted = st.form_submit_button("➕ Aggiungi Rettifica", type="primary", use_container_width=False)
-
-            if submitted:
+            if st.form_submit_button("➕ Aggiungi Rettifica", type="primary"):
                 if not conto_cod.strip():
                     st.error("Inserisci il conto.")
-                elif not descrizione.strip():
+                elif not desc_rtt.strip():
                     st.error("Inserisci una descrizione.")
                 elif importo == 0:
-                    st.warning("L'importo è 0. Inserisci un valore diverso da zero.")
+                    st.warning("Importo è 0.")
                 else:
-                    nuova = {
-                        'id': len(rettifiche) + 1,
+                    retts.append({
+                        'id': len(retts) + 1,
                         'conto': conto_cod.strip(),
-                        'conto_label': conto_sel if not use_manual else conto_cod,
-                        'descrizione': descrizione.strip(),
+                        'conto_label': conto_sel,
+                        'descrizione': desc_rtt.strip(),
                         'importo': importo,
                         'data': data_rtt.strftime('%d/%m/%Y'),
                         'mese': data_rtt.strftime('%Y-%m'),
-                        'tipo': tipo,
-                        'note': note.strip(),
+                        'tipo': tipo_rtt,
+                        'note': note_rtt.strip(),
                         'attiva': True
-                    }
-                    rettifiche.append(nuova)
-                    save_cliente({'rettifiche': rettifiche})
-                    st.success(f"✅ Rettifica aggiunta: {descrizione} — {fmt_eur(importo)}")
+                    })
+                    save_cliente({'rettifiche': retts})
+                    st.success(f"✅ Rettifica aggiunta: {desc_rtt} — {fmt_eur(importo)}")
                     st.rerun()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # TAB 2: RETTIFICHE INSERITE
-    # ══════════════════════════════════════════════════════════════════════════
     with tab2:
-        st.markdown("### Rettifiche Extra-Contabili Registrate")
-
-        if not rettifiche:
-            st.info("Nessuna rettifica inserita per questo cliente.")
+        if not retts:
+            st.info("Nessuna rettifica inserita.")
             return
 
-        # Stats
-        rtt_attive = [r for r in rettifiche if r.get('attiva', True)]
-        totale_pos = sum(r['importo'] for r in rtt_attive if r['importo'] > 0)
-        totale_neg = sum(r['importo'] for r in rtt_attive if r['importo'] < 0)
-        effetto_netto = totale_pos + totale_neg
+        attive  = [r for r in retts if r.get('attiva', True)]
+        tot_pos = sum(r['importo'] for r in attive if r['importo'] > 0)
+        tot_neg = sum(r['importo'] for r in attive if r['importo'] < 0)
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Totale rettifiche", len(rettifiche))
-        c2.metric("Attive", len(rtt_attive))
-        c3.metric("Effetto + (incremento)", fmt_eur(totale_pos))
-        c4.metric("Effetto netto", fmt_eur(effetto_netto))
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Totale", len(retts))
+        c2.metric("Effetto +", fmt_eur(tot_pos))
+        c3.metric("Effetto netto", fmt_eur(tot_pos + tot_neg))
 
-        st.markdown("---")
-
-        # Tabella interattiva
-        df_rtt = pd.DataFrame(rettifiche)
-        cols_show = ['id', 'conto', 'descrizione', 'tipo', 'importo', 'data', 'mese', 'attiva']
-        cols_show = [c for c in cols_show if c in df_rtt.columns]
-        df_display = df_rtt[cols_show].copy()
-        df_display.columns = ['ID', 'Conto', 'Descrizione', 'Tipo', 'Importo (€)', 'Data', 'Mese', 'Attiva']
-
-        # Formatta importo
-        df_display['Importo (€)'] = df_display['Importo (€)'].apply(lambda x: fmt_eur(x, show_sign=True))
-
-        st.dataframe(df_display, use_container_width=True, height=300)
+        # Tabella
+        df_r = pd.DataFrame(retts)
+        show_cols = [c for c in ['id','conto','descrizione','tipo','importo','data','attiva'] if c in df_r.columns]
+        st.dataframe(df_r[show_cols].style.format({'importo': lambda x: fmt_eur(float(x))}),
+                     use_container_width=True, height=280)
 
         st.markdown("---")
-        st.markdown("#### Gestione Rettifiche")
-
-        c1, c2 = st.columns(2)
-        with c1:
-            id_sel = st.number_input("ID rettifica da modificare:", min_value=1,
-                                      max_value=max(r['id'] for r in rettifiche), step=1,
-                                      key="rtt_id_sel")
-
-        with c2:
-            azione = st.selectbox("Azione:", ["Disattiva (escludi dal CE)", "Riattiva", "Elimina definitivamente"],
-                                   key="rtt_azione")
-
-        if st.button("Applica", key="btn_applica_rtt"):
-            idx = next((i for i, r in enumerate(rettifiche) if r['id'] == id_sel), None)
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            id_sel = st.number_input("ID rettifica:", min_value=1,
+                                      max_value=max(r['id'] for r in retts), step=1, key="rtt_id")
+        with col_g2:
+            azione = st.selectbox("Azione:", ["Disattiva","Riattiva","Elimina"], key="rtt_az")
+        if st.button("Applica"):
+            idx = next((i for i, r in enumerate(retts) if r['id'] == id_sel), None)
             if idx is not None:
-                if azione == "Disattiva (escludi dal CE)":
-                    rettifiche[idx]['attiva'] = False
-                    st.success("Rettifica disattivata.")
-                elif azione == "Riattiva":
-                    rettifiche[idx]['attiva'] = True
-                    st.success("Rettifica riattivata.")
-                elif azione == "Elimina definitivamente":
-                    rettifiche.pop(idx)
-                    st.success("Rettifica eliminata.")
-                save_cliente({'rettifiche': rettifiche})
+                if azione == "Disattiva":     retts[idx]['attiva'] = False
+                elif azione == "Riattiva":    retts[idx]['attiva'] = True
+                elif azione == "Elimina":     retts.pop(idx)
+                save_cliente({'rettifiche': retts})
                 st.rerun()
-            else:
-                st.error(f"ID {id_sel} non trovato.")
 
-        # Export
-        if rettifiche:
-            csv = df_display.to_csv(index=False, sep=';').encode('utf-8-sig')
-            st.download_button("⬇️ Esporta Rettifiche CSV", data=csv,
-                                file_name=f"rettifiche_{ca}.csv", mime="text/csv")
+        csv = df_r[show_cols].to_csv(index=False, sep=';').encode('utf-8-sig')
+        st.download_button("⬇️ Esporta CSV", data=csv,
+                            file_name=f"rettifiche_{ca}.csv", mime="text/csv")
