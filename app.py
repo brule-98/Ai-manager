@@ -14,174 +14,208 @@ st.set_page_config(
 # ── GLOBAL CSS ──────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display:ital@0;1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* ── Root & Body ── */
 html, body, [class*="css"] {
-    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    background: #F8F9FB !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    background: #060D1A !important;
+    color: #E2E8F0 !important;
 }
 
-/* ── Main Area ── */
+/* ── Main area ── */
 .main .block-container {
-    padding: 0 2rem 2rem !important;
-    max-width: 1280px;
+    background: #060D1A !important;
+    padding: 0 2rem 3rem !important;
+    max-width: 1400px;
 }
 
 /* ── Sidebar ── */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0A1220 0%, #0F1E36 60%, #0A1220 100%) !important;
-    border-right: 1px solid rgba(201,168,76,0.1) !important;
+    background: #080F1E !important;
+    border-right: 1px solid rgba(255,255,255,0.05) !important;
 }
-[data-testid="stSidebar"] * { color: #CBD5E8 !important; }
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 { color: #F1F5F9 !important; }
+[data-testid="stSidebar"] * { color: #94A3B8 !important; }
+[data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] strong, [data-testid="stSidebar"] b { color: #E2E8F0 !important; }
 [data-testid="stSidebar"] .stSelectbox > div > div {
-    background: rgba(255,255,255,0.06) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
     color: #E2E8F0 !important;
+    border-radius: 8px !important;
 }
 
 /* ── Sidebar nav buttons ── */
 [data-testid="stSidebar"] .stButton > button {
     background: transparent !important;
-    color: #94A3B8 !important;
+    color: #64748B !important;
     border: 1px solid transparent !important;
     border-radius: 8px !important;
-    font-size: 0.84rem !important;
+    font-size: 0.83rem !important;
     text-align: left !important;
-    transition: all 0.15s ease !important;
+    transition: all 0.15s !important;
     width: 100% !important;
-    margin-bottom: 3px !important;
+    margin-bottom: 2px !important;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
-    background: rgba(255,255,255,0.07) !important;
-    border-color: rgba(255,255,255,0.12) !important;
+    background: rgba(255,255,255,0.05) !important;
     color: #E2E8F0 !important;
+    border-color: rgba(255,255,255,0.08) !important;
 }
 
 /* ── Main buttons ── */
 .stButton > button {
-    background: #1A3A7A;
-    color: white !important;
-    border: none !important;
+    background: linear-gradient(135deg, #1A3A7A, #0F2044) !important;
+    color: #E2E8F0 !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
     border-radius: 8px !important;
     font-weight: 500 !important;
-    transition: all 0.2s ease !important;
+    font-size: 0.84rem !important;
+    transition: all 0.2s !important;
 }
 .stButton > button:hover {
-    background: #0F2044 !important;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 14px rgba(15,32,68,0.25) !important;
+    background: linear-gradient(135deg, #1E4A9A, #132855) !important;
+    border-color: rgba(255,255,255,0.15) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 16px rgba(26,58,122,0.4) !important;
 }
 .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #1A3A7A, #0F2044) !important;
-    box-shadow: 0 2px 8px rgba(15,32,68,0.2) !important;
+    background: linear-gradient(135deg, #C9A84C, #A8833A) !important;
+    color: #060D1A !important;
+    font-weight: 700 !important;
+    border: none !important;
+    box-shadow: 0 2px 12px rgba(201,168,76,0.25) !important;
 }
 .stButton > button[kind="primary"]:hover {
-    background: linear-gradient(135deg, #0F2044, #071426) !important;
+    opacity: 0.88 !important;
     transform: translateY(-1px) !important;
+    box-shadow: 0 4px 20px rgba(201,168,76,0.35) !important;
 }
 
 /* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 4px;
-    border-bottom: 2px solid #E2E8F0;
-    background: transparent;
+    background: rgba(255,255,255,0.02) !important;
+    border-radius: 10px 10px 0 0;
+    gap: 2px;
+    padding: 4px 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 .stTabs [data-baseweb="tab"] {
-    background: transparent;
-    border-radius: 8px 8px 0 0;
-    font-weight: 500;
-    font-size: 0.83rem;
-    color: #6B7280;
-    padding: 9px 16px;
-    border: none;
+    background: transparent !important;
+    color: #475569 !important;
+    border-radius: 8px 8px 0 0 !important;
+    font-size: 0.83rem !important;
+    font-weight: 500 !important;
+    padding: 8px 18px !important;
+    border: none !important;
+    transition: color 0.15s !important;
 }
 .stTabs [aria-selected="true"] {
-    background: #EEF2FF !important;
-    color: #1A3A7A !important;
-    border-bottom: 3px solid #1A3A7A !important;
+    background: rgba(255,255,255,0.05) !important;
+    color: #E2E8F0 !important;
+    border-bottom: 2px solid #C9A84C !important;
     font-weight: 600 !important;
 }
 
 /* ── Expanders ── */
 div[data-testid="stExpander"] {
-    background: white;
-    border-radius: 10px;
-    border: 1px solid #E2E8F0;
-    margin-bottom: 8px;
-    overflow: hidden;
+    background: rgba(255,255,255,0.02) !important;
+    border: 1px solid rgba(255,255,255,0.07) !important;
+    border-radius: 10px !important;
+    margin-bottom: 8px !important;
 }
-div[data-testid="stExpander"]:hover {
-    border-color: #C7D2FE;
+div[data-testid="stExpander"] summary {
+    color: #94A3B8 !important;
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
+}
+div[data-testid="stExpander"] p { color: #94A3B8 !important; }
+
+/* ── Input fields ── */
+.stTextInput input, .stTextArea textarea, .stNumberInput input {
+    background: rgba(255,255,255,0.04) !important;
+    color: #E2E8F0 !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    border-radius: 8px !important;
+    font-family: 'Inter', sans-serif !important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus, .stNumberInput input:focus {
+    border-color: #C9A84C !important;
+    box-shadow: 0 0 0 3px rgba(201,168,76,0.12) !important;
+}
+.stTextInput input::placeholder, .stTextArea textarea::placeholder { color: #334155 !important; }
+.stTextInput label, .stTextArea label, .stNumberInput label,
+.stSelectbox label, .stRadio label, .stCheckbox label,
+.stFileUploader label, .stSlider label {
+    color: #64748B !important;
+    font-size: 0.78rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.3px !important;
+}
+
+/* ── Selectbox ── */
+.stSelectbox > div > div {
+    background: rgba(255,255,255,0.04) !important;
+    color: #E2E8F0 !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    border-radius: 8px !important;
+}
+
+/* ── Radio / Checkbox ── */
+.stRadio > div { color: #94A3B8 !important; }
+.stCheckbox > label > div { color: #94A3B8 !important; }
+
+/* ── Alerts ── */
+[data-testid="stAlert"] { border-radius: 10px !important; }
+[data-testid="stAlert"] p { color: #E2E8F0 !important; }
+.stSuccess { background: rgba(16,185,129,0.1) !important; border-color: rgba(16,185,129,0.3) !important; }
+.stWarning { background: rgba(245,158,11,0.1) !important; border-color: rgba(245,158,11,0.3) !important; }
+.stError   { background: rgba(239,68,68,0.1)  !important; border-color: rgba(239,68,68,0.3)  !important; }
+.stInfo    { background: rgba(59,130,246,0.1)  !important; border-color: rgba(59,130,246,0.3)  !important; }
+
+/* ── Dataframe ── */
+[data-testid="stDataFrame"] {
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 8px !important;
 }
 
 /* ── Metrics ── */
 [data-testid="stMetric"] {
-    background: white;
-    border-radius: 10px;
-    padding: 14px 18px;
-    box-shadow: 0 1px 6px rgba(0,0,0,.08);
-    border: 1px solid #E2E8F0;
+    background: rgba(255,255,255,0.03) !important;
+    border: 1px solid rgba(255,255,255,0.07) !important;
+    border-radius: 12px !important;
+    padding: 16px 20px !important;
 }
-[data-testid="stMetric"] label { color: #4A5568 !important; font-weight: 600 !important; }
-[data-testid="stMetricValue"] { color: #1A202C !important; }
+[data-testid="stMetric"] label { color: #475569 !important; }
+[data-testid="stMetricValue"] { color: #F1F5F9 !important; }
 
-/* ── Progress bar ── */
+/* ── Progress ── */
 .stProgress > div > div > div {
-    background: linear-gradient(90deg, #1A3A7A, #059669) !important;
+    background: linear-gradient(90deg, #1A3A7A, #C9A84C) !important;
 }
 
-/* ── Dataframes ── */
-[data-testid="stDataFrame"] {
-    border: 1px solid #E2E8F0;
-    border-radius: 8px;
-    overflow: hidden;
+/* ── File uploader ── */
+[data-testid="stFileUploader"] {
+    background: rgba(255,255,255,0.02) !important;
+    border: 1px dashed rgba(255,255,255,0.1) !important;
+    border-radius: 8px !important;
 }
+[data-testid="stFileUploader"] span, [data-testid="stFileUploader"] p { color: #475569 !important; }
 
-/* ── Input fields: dark text on light bg ── */
-.stTextInput input, .stTextArea textarea, .stNumberInput input {
-    background: white !important;
-    color: #1A202C !important;
-    border: 1px solid #CBD5E0 !important;
-    border-radius: 8px !important;
-    font-family: 'DM Sans', sans-serif !important;
-}
-.stTextInput input:focus, .stTextArea textarea:focus, .stNumberInput input:focus {
-    border-color: #1A3A7A !important;
-    box-shadow: 0 0 0 3px rgba(26,58,122,0.12) !important;
-}
-.stTextInput label, .stTextArea label, .stNumberInput label,
-.stSelectbox label, .stRadio label, .stCheckbox label,
-.stFileUploader label, .stSlider label {
-    color: #2D3748 !important;
-    font-weight: 500 !important;
-}
-.stSelectbox > div > div {
-    background: white !important;
-    color: #1A202C !important;
-    border: 1px solid #CBD5E0 !important;
-    border-radius: 8px !important;
-}
-.stRadio > div { color: #2D3748 !important; }
-div[data-testid="stExpander"] summary { color: #1A202C !important; font-weight: 600 !important; }
-div[data-testid="stExpander"] p, div[data-testid="stExpander"] span { color: #2D3748 !important; }
-[data-testid="stAlert"] p { color: #1A202C !important; }
-.stCaption, [data-testid="stCaptionContainer"] { color: #718096 !important; }
-[data-testid="stFileUploader"] span { color: #4A5568 !important; }
-.stTabs [data-baseweb="tab"] { color: #4A5568 !important; }
-.stTabs [aria-selected="true"] { color: #1A3A7A !important; }
+/* ── Caption ── */
+.stCaption, [data-testid="stCaptionContainer"] { color: #334155 !important; }
+
+/* ── Code ── */
+code { background: rgba(255,255,255,0.06) !important; color: #C9A84C !important; border-radius: 4px !important; }
 
 /* ── Hide Streamlit branding ── */
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding-top: 0 !important; }
 
-/* ── Scrollbars (webkit) ── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #F0F4F8; }
-::-webkit-scrollbar-thumb { background: #A0AEC0; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #718096; }
+/* ── Scrollbars ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -220,20 +254,27 @@ role   = st.session_state['role']
 # ── HEADER ───────────────────────────────────────────────────────────────────
 role_badge = '🏢 Studio' if role == 'professionista' else '👔 Azienda'
 st.markdown(f"""
-<div style='background:linear-gradient(135deg,#0A1220 0%,#1A3A7A 60%,#0A1220 100%);
-            color:white;padding:14px 28px;border-radius:0 0 16px 16px;margin-bottom:20px;
-            display:flex;align-items:center;justify-content:space-between;
-            box-shadow:0 2px 12px rgba(10,18,32,0.15)'>
-    <div>
-        <span style='font-size:10px;text-transform:uppercase;letter-spacing:3px;
-                     color:#C9A84C;font-weight:700;margin-right:12px'>AI-Manager</span>
-        <span style='font-size:1.1rem;font-weight:700;letter-spacing:-0.3px'>
-            📊 Piattaforma di Controllo di Gestione
-        </span>
+<div style='background:#080F1E;border-bottom:1px solid rgba(201,168,76,0.15);
+            padding:12px 32px;margin-bottom:24px;
+            display:flex;align-items:center;justify-content:space-between'>
+    <div style='display:flex;align-items:center;gap:16px'>
+        <div style='width:32px;height:32px;background:linear-gradient(135deg,#C9A84C,#A8833A);
+                    border-radius:8px;display:flex;align-items:center;justify-content:center;
+                    font-size:0.9rem;flex-shrink:0'>📊</div>
+        <div>
+            <div style='font-size:9px;text-transform:uppercase;letter-spacing:4px;color:#C9A84C;font-weight:700'>AI-Manager</div>
+            <div style='font-size:0.88rem;font-weight:700;color:#F1F5F9;letter-spacing:-0.2px'>Controllo di Gestione</div>
+        </div>
     </div>
-    <div style='font-size:0.75rem;color:#90AEE8;background:rgba(255,255,255,0.08);
-                padding:5px 14px;border-radius:20px;border:1px solid rgba(255,255,255,0.1)'>
-        👤 {user} &nbsp;·&nbsp; {tenant} &nbsp;·&nbsp; {role_badge}
+    <div style='display:flex;align-items:center;gap:8px'>
+        <div style='font-size:0.72rem;color:#475569;background:rgba(255,255,255,0.04);
+                    padding:4px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.06)'>
+            👤 {user} &nbsp;·&nbsp; <span style='color:#64748B'>{tenant}</span>
+        </div>
+        <div style='font-size:0.72rem;color:#C9A84C;background:rgba(201,168,76,0.08);
+                    padding:4px 10px;border-radius:6px;border:1px solid rgba(201,168,76,0.15)'>
+            {role_badge}
+        </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
