@@ -10,7 +10,7 @@ import streamlit as st
 
 # ─── CARICAMENTO FILE ─────────────────────────────────────────────────────────
 
-def smart_load(file) -> pd.DataFrame | None:
+def smart_load(file) -> object:
     """
     Carica CSV o Excel con gestione automatica di:
     - Encoding: utf-8-sig, latin1, cp1252
@@ -63,7 +63,7 @@ def smart_load(file) -> pd.DataFrame | None:
 
 # ─── RILEVAMENTO COLONNE ──────────────────────────────────────────────────────
 
-def find_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
+def find_column(df: pd.DataFrame, candidates: list) -> object:
     """
     Trova la prima colonna corrispondente tra le varianti fornite.
     Prima cerca match esatto, poi case-insensitive, poi partial match.
@@ -183,7 +183,7 @@ def fmt_k(val) -> str:
 
 # ─── ACCESSO STATO SESSIONE ───────────────────────────────────────────────────
 
-def get_cliente() -> dict | None:
+def get_cliente() -> object:
     """Restituisce il dict del cliente attivo o None."""
     ca = st.session_state.get('cliente_attivo')
     if ca and ca in st.session_state.get('clienti', {}):
@@ -232,4 +232,5 @@ def cliente_vuoto() -> dict:
             'destinatari': [],
             'auto_report': False,
         }
+    }
     }
