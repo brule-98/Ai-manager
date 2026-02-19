@@ -1,412 +1,308 @@
+"""workspace.py — Caricamento dati e mappatura conti."""
 import streamlit as st
 import pandas as pd
-import io
-from services.data_utils import smart_load, find_column, get_cliente, save_cliente
-from services.ai_mapper import ai_suggest_mapping, ai_suggest_new_accounts
+from services.data_utils import smart_load, find_column, get_cliente, save_cliente, get_api_key
+from services.riclassifica import get_label_map
 
 
 def render_workspace():
     ca = st.session_state.get('cliente_attivo')
     if not ca:
-        st.warning("⚠️ Seleziona o crea un cliente dalla sidebar.")
-        return
+        st.warning("⚠️ Seleziona o crea un cliente dalla sidebar."); return
 
     cliente = get_cliente()
-    st.markdown(f"## 🗂️ Workspace Dati — {ca}")
+    _header(ca)
 
-    tab1, tab2, tab3 = st.tabs(["📂 Dati & File", "🔗 Mappatura Conti", "🔑 API Key"])
-
-    with tab1:
-        _render_caricamento(ca, cliente)
-    with tab2:
-        _render_mappatura(ca, cliente)
-    with tab3:
-        _render_api_tab()
+    tab1, tab2, tab3 = st.tabs(["📂 Caricamento File", "🔗 Mappatura Conti", "🔑 API Key"])
+    with tab1: _render_caricamento(ca, cliente)
+    with tab2: _render_mappatura(ca, cliente)
+    with tab3: _render_api_tab()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 1: CARICAMENTO
-# ══════════════════════════════════════════════════════════════════════════════
+def _header(ca):
+    st.markdown(f"""
+    <div style='margin-bottom:20px'>
+        <div style='font-size:10px;text-transform:uppercase;letter-spacing:2px;
+                    color:#C9A84C;font-weight:700;margin-bottom:4px'>Workspace</div>
+        <div style='font-size:1.4rem;font-weight:700;color:#F1F5F9'>🗂️ {ca}</div>
+        <div style='font-size:0.8rem;color:#475569'>Gestione dati contabili e configurazione mappatura</div>
+    </div>""", unsafe_allow_html=True)
+
+
+def _card_status(label, ok, detail=""):
+    color, bg, em = ('#10B981','rgba(16,185,129,0.08)','✅') if ok else ('#F59E0B','rgba(245,158,11,0.08)','⏳')
+    st.markdown(
+        f"<div style='background:{bg};border:1px solid {color}33;border-radius:10px;"
+        f"padding:12px 16px;text-align:center'>"
+        f"<div style='color:{color};font-weight:700;font-size:0.88rem'>{em} {label}</div>"
+        f"{'<div style=\"color:#64748B;font-size:0.75rem;margin-top:3px\">' + detail + '</div>' if detail else ''}"
+        f"</div>", unsafe_allow_html=True)
+
+
+# ── CARICAMENTO ───────────────────────────────────────────────────────────────
 def _render_caricamento(ca, cliente):
     st.markdown("""
-    <div class="info-box info-box-blue">
-    📌 Carica i tre file richiesti in formato <b>CSV</b> (sep ; o ,) o <b>Excel (.xlsx)</b>.
-    I caratteri italiani e gli encoding vengono gestiti automaticamente.
-    Per la gestione multi-sito, assicurati che il DB contenga una colonna <b>"Sito"</b> o <b>"Stabilimento"</b>.
-    </div>
-    """, unsafe_allow_html=True)
+    <div style='background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.15);
+                border-radius:10px;padding:14px 18px;font-size:0.84rem;color:#64748B;margin-bottom:20px'>
+    Carica i tre file richiesti. Formati: <strong style='color:#94A3B8'>CSV</strong> (sep. ; o ,) e
+    <strong style='color:#94A3B8'>Excel (.xlsx)</strong>.
+    Encoding italiano (latin1/utf-8) gestito automaticamente.
+    I dati vengono mantenuti per tutta la sessione.
+    </div>""", unsafe_allow_html=True)
+
+    def upload_block(col, num, label, hint, field):
+        with col:
+            st.markdown(f"<div style='font-size:0.78rem;font-weight:600;color:#94A3B8;margin-bottom:8px'>{num}. {label}</div>", unsafe_allow_html=True)
+            st.caption(hint)
+            f = st.file_uploader(label, type=["csv","xlsx","xls"],
+                                  key=f"u_{field}_{ca}", label_visibility="collapsed")
+            if f:
+                df = smart_load(f)
+                if df is not None and not df.empty:
+                    save_cliente({field: df})
+                    st.success(f"✅ {len(df)} righe")
+                    with st.expander("Anteprima"):
+                        st.caption(f"Colonne: {list(df.columns)}")
+                        st.dataframe(df.head(6), use_container_width=True)
+                else:
+                    st.error("Errore lettura — verifica formato e separatore")
+            elif cliente.get(field) is not None:
+                df_cur = cliente[field]
+                st.markdown(f"<div style='font-size:0.78rem;color:#10B981;padding:6px 0'>📋 {len(df_cur)} righe in memoria</div>", unsafe_allow_html=True)
+                with st.expander("Anteprima"):
+                    st.caption(f"Colonne: {list(df_cur.columns)}")
+                    st.dataframe(df_cur.head(6), use_container_width=True)
 
     c1, c2, c3 = st.columns(3)
+    upload_block(c1, "1", "Piano dei Conti",       "Atteso: Codice, Descrizione",     "df_piano")
+    upload_block(c2, "2", "DB Contabile",           "Atteso: Data, Conto, Saldo",       "df_db")
+    upload_block(c3, "3", "Schema Riclassifica",    "Atteso: Codice, Descrizione voce", "df_ricl")
 
-    with c1:
-        st.markdown("**1. Piano dei Conti**")
-        st.caption("Colonne: Codice, Descrizione")
-        u = st.file_uploader("Piano dei Conti", type=["csv","xlsx","xls"],
-                              key=f"u_piano_{ca}", label_visibility="collapsed")
-        if u:
-            df = smart_load(u)
-            if df is not None:
-                save_cliente({'df_piano': df})
-                st.success(f"✅ {len(df)} conti")
-                with st.expander("Anteprima"):
-                    st.dataframe(df.head(6), use_container_width=True)
-        elif cliente.get('df_piano') is not None:
-            _stato_file(f"{len(cliente['df_piano'])} conti in memoria", cliente['df_piano'])
-
-    with c2:
-        st.markdown("**2. DB Contabile / Movimenti**")
-        st.caption("Colonne: Data, Conto, Saldo [, Sito]")
-        u = st.file_uploader("DB Contabile", type=["csv","xlsx","xls"],
-                              key=f"u_db_{ca}", label_visibility="collapsed")
-        if u:
-            df = smart_load(u)
-            if df is not None:
-                save_cliente({'df_db': df})
-                # Rilevamento colonna sito
-                col_sito = find_column(df, ['Sito','sito','Stabilimento','stabilimento','Site'])
-                siti_msg = ""
-                if col_sito:
-                    siti = df[col_sito].dropna().unique()
-                    siti_msg = f" · {len(siti)} siti rilevati"
-                st.success(f"✅ {len(df)} movimenti{siti_msg}")
-                with st.expander("Anteprima"):
-                    st.dataframe(df.head(6), use_container_width=True)
-        elif cliente.get('df_db') is not None:
-            _stato_file(f"{len(cliente['df_db'])} movimenti in memoria", cliente['df_db'])
-
-    with c3:
-        st.markdown("**3. Schema di Riclassifica**")
-        st.caption("Colonne: Codice, Descrizione")
-        u = st.file_uploader("Schema", type=["csv","xlsx","xls"],
-                              key=f"u_ricl_{ca}", label_visibility="collapsed")
-        if u:
-            df = smart_load(u)
-            if df is not None:
-                save_cliente({'df_ricl': df})
-                st.success(f"✅ {len(df)} voci")
-                with st.expander("Anteprima"):
-                    st.dataframe(df.head(6), use_container_width=True)
-        elif cliente.get('df_ricl') is not None:
-            _stato_file(f"{len(cliente['df_ricl'])} voci schema", cliente['df_ricl'])
-
-    # Memory Mapping: caricamento CSV storico
     st.markdown("---")
-    st.markdown("#### 💾 Memory Mapping — Carica Abbinamenti Storici")
-    st.markdown("""
-    <div class="info-box info-box-amber">
-    ⚡ Hai già un file CSV con gli abbinamenti <b>Codice Conto → Codice Riclassifica</b> da un periodo precedente?
-    Caricalo qui per pre-compilare automaticamente la mappatura.
-    </div>
-    """, unsafe_allow_html=True)
-
-    u_mem = st.file_uploader(
-        "CSV Memory Mapping (colonne: codice_conto, codice_voce_ricl)",
-        type=["csv","xlsx","xls"], key=f"u_mem_{ca}"
-    )
-    if u_mem:
-        df_mem = smart_load(u_mem)
-        if df_mem is not None:
-            col_c = find_column(df_mem, ['codice_conto','Codice Conto','conto','Codice','codice'])
-            col_v = find_column(df_mem, ['codice_voce_ricl','voce_ricl','Voce','codice_voce','mapping'])
-            if col_c and col_v:
-                mapping_mem = dict(zip(
-                    df_mem[col_c].astype(str),
-                    df_mem[col_v].astype(str)
-                ))
-                mapping_curr = cliente.get('mapping', {})
-                n_nuovi = sum(1 for k, v in mapping_mem.items() if k not in mapping_curr)
-                n_aggiornati = sum(1 for k, v in mapping_mem.items() if k in mapping_curr)
-                mapping_curr.update(mapping_mem)
-                save_cliente({'mapping': mapping_curr})
-                st.success(f"✅ Memory Mapping applicato: {n_nuovi} nuovi abbinamenti, {n_aggiornati} aggiornati.")
-                st.rerun()
-            else:
-                st.error("Colonne non trovate. Serve: 'codice_conto' e 'codice_voce_ricl'.")
-
-    # Status bar
-    stati = {
-        'Piano dei Conti': cliente.get('df_piano') is not None,
-        'DB Contabile':    cliente.get('df_db') is not None,
-        'Schema Riclassifica': cliente.get('df_ricl') is not None,
-    }
-    st.markdown("---")
+    stati = [
+        ("Piano dei Conti", 'df_piano', lambda c: f"{len(c.get('df_piano',pd.DataFrame()))} conti"),
+        ("DB Contabile",    'df_db',    lambda c: f"{len(c.get('df_db',pd.DataFrame()))} righe"),
+        ("Schema Ricl.",    'df_ricl',  lambda c: f"{len(c.get('df_ricl',pd.DataFrame()))} voci"),
+    ]
     cols = st.columns(3)
-    for i, (nome, ok) in enumerate(stati.items()):
+    for i, (nome, field, det_fn) in enumerate(stati):
+        ok = cliente.get(field) is not None and not cliente[field].empty
         with cols[i]:
-            c, bg, ic = ('#065F46','#D1FAE5','✅') if ok else ('#92400E','#FEF3C7','⏳')
-            st.markdown(
-                f"<div style='text-align:center;padding:10px;background:{bg};border-radius:8px;"
-                f"color:{c};font-weight:500;font-size:0.83rem;'>{ic} {nome}</div>",
-                unsafe_allow_html=True
-            )
+            _card_status(nome, ok, det_fn(cliente) if ok else "Non caricato")
 
 
-def _stato_file(msg, df):
-    st.markdown(f"<div class='info-box info-box-blue'>📋 {msg}</div>", unsafe_allow_html=True)
-    with st.expander("Anteprima"):
-        st.dataframe(df.head(6), use_container_width=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2: MAPPATURA
-# ══════════════════════════════════════════════════════════════════════════════
+# ── MAPPATURA ─────────────────────────────────────────────────────────────────
 def _render_mappatura(ca, cliente):
+    st.markdown("""
+    <div style='font-size:1.1rem;font-weight:700;color:#F1F5F9;margin-bottom:4px'>
+        🔗 Mappatura Conti → Schema Riclassifica
+    </div>
+    <div style='font-size:0.82rem;color:#475569;margin-bottom:20px'>
+        Associa ogni conto contabile alla voce del CE riclassificato.
+        Le <strong style='color:#C9A84C'>descrizioni</strong> sono sempre mostrate al posto dei codici tecnici.
+    </div>""", unsafe_allow_html=True)
+
     df_piano = cliente.get('df_piano')
     df_ricl  = cliente.get('df_ricl')
     mapping  = cliente.get('mapping', {})
-    staging  = cliente.get('mapping_staging')  # None = nessuna staging attiva
 
     if df_piano is None or df_ricl is None:
-        st.warning("⚠️ Carica prima Piano dei Conti e Schema di Riclassifica (Tab 1).")
+        st.warning("⚠️ Carica prima Piano dei Conti e Schema Riclassifica (Tab 1).")
         return
 
-    col_cod_piano = find_column(df_piano, ['Codice','codice','codice conto','Codice Conto','CODICE','Conto','conto','ID'])
-    col_desc_piano = find_column(df_piano, ['Descrizione','descrizione','conto','Conto','Nome','nome'])
-    col_cod_ricl   = find_column(df_ricl, ['Codice','codice','Voce','voce','ID','id'])
-    col_desc_ricl  = find_column(df_ricl, ['Descrizione','descrizione','voce','Voce','Nome','nome'])
+    col_cod_piano  = find_column(df_piano, ['Codice','codice','CodConto','Conto','conto','ID','cod'])
+    col_desc_piano = find_column(df_piano, ['Descrizione','descrizione','Nome','nome','Conto','conto'])
+    col_cod_ricl   = find_column(df_ricl,  ['Codice','codice','ID','id','Voce','voce'])
+    col_desc_ricl  = find_column(df_ricl,  ['Descrizione','descrizione','Nome','nome','Voce','voce'])
 
-    if not col_cod_piano or not col_cod_ricl:
-        st.error("Colonna 'Codice' non trovata in uno dei file. Verifica le intestazioni.")
+    if not col_cod_piano:
+        st.error(f"Colonna Codice non trovata nel piano. Colonne: {list(df_piano.columns)[:8]}")
+        return
+    if not col_cod_ricl:
+        st.error(f"Colonna Codice non trovata nello schema. Colonne: {list(df_ricl.columns)[:8]}")
         return
 
-    # Costruisci opzioni dropdown: "A1 — Ricavi Vendite"
-    voci_ricl = df_ricl[col_cod_ricl].astype(str).tolist()
-    if col_desc_ricl:
-        voci_ricl_label = {
-            str(r[col_cod_ricl]): f"{r[col_cod_ricl]} — {r[col_desc_ricl]}"
-            for _, r in df_ricl.iterrows()
-        }
-    else:
-        voci_ricl_label = {v: v for v in voci_ricl}
+    label_map = get_label_map(df_ricl)
 
-    # ── PROGRESS BADGE ───────────────────────────────────────────
-    n_tot  = len(df_piano)
-    n_mapp = len([v for v in mapping.values() if v and str(v) != 'nan'])
-    n_rest = n_tot - n_mapp
-    pct    = round(n_mapp / n_tot * 100) if n_tot > 0 else 0
+    # Costruisci opzioni dropdown con descrizioni
+    voci_options = ['— Non mappato —']
+    desc_to_cod  = {}
+    for _, row in df_ricl.iterrows():
+        cod  = str(row[col_cod_ricl]).strip()
+        desc = str(row[col_desc_ricl]).strip() if col_desc_ricl and col_desc_ricl != col_cod_ricl else cod
+        if desc.lower() in ('nan','none','') or cod.lower() in ('nan','none',''):
+            continue
+        voci_options.append(desc)
+        desc_to_cod[desc] = cod
 
-    col_p1, col_p2, col_p3 = st.columns([2, 2, 1])
-    with col_p1:
-        st.markdown(f"""
-        <div style="margin-bottom:4px;">
-            <span style="font-size:0.72rem; color:#6B7280; text-transform:uppercase; letter-spacing:1px;">
-                Progresso mappatura
-            </span>
-            <span style="margin-left:8px; font-weight:700; color:{'#059669' if pct == 100 else '#1A3A7A'};">
-                {pct}%
-            </span>
-        </div>
-        <div class="progress-wrap">
-            <div class="progress-bar" style="width:{pct}%"></div>
-        </div>
-        <div class="progress-label">{n_mapp}/{n_tot} conti mappati · {n_rest} rimanenti</div>
-        """, unsafe_allow_html=True)
-    with col_p2:
-        st.markdown(f"""
-        <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
-            <span class="sentinel-badge badge-ok">✅ Mappati: {n_mapp}</span>
-            <span class="sentinel-badge badge-warn">⏳ Da fare: {n_rest}</span>
-        </div>
-        """, unsafe_allow_html=True)
+    # Stats progress
+    n_tot     = len(df_piano)
+    n_mappati = len([v for v in mapping.values() if v])
+    pct       = n_mappati / n_tot * 100 if n_tot > 0 else 0
 
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f"<div style='background:#111827;border-radius:10px;padding:14px;text-align:center'><div style='font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:1px'>Totale</div><div style='font-size:1.4rem;font-weight:700;color:#F1F5F9'>{n_tot}</div></div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"<div style='background:#111827;border-radius:10px;padding:14px;text-align:center'><div style='font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:1px'>Mappati</div><div style='font-size:1.4rem;font-weight:700;color:#10B981'>{n_mappati}</div></div>", unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"<div style='background:#111827;border-radius:10px;padding:14px;text-align:center'><div style='font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:1px'>Da mappare</div><div style='font-size:1.4rem;font-weight:700;color:#F59E0B'>{n_tot - n_mappati}</div></div>", unsafe_allow_html=True)
+    with c4:
+        st.markdown(f"<div style='background:#111827;border-radius:10px;padding:14px;text-align:center'><div style='font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:1px'>Completamento</div><div style='font-size:1.4rem;font-weight:700;color:#C9A84C'>{pct:.0f}%</div></div>", unsafe_allow_html=True)
+
+    st.progress(pct / 100)
+
+    # AI mapping
     st.markdown("---")
+    st.markdown("#### 🤖 Mappatura Automatica con AI")
 
-    # ── SEZIONE AI CON STAGING ───────────────────────────────────
-    st.markdown("#### 🤖 Mappatura AI con Staging")
+    col_ai1, col_ai2 = st.columns(2)
+    with col_ai1:
+        if st.button("🤖 Mappa TUTTI i conti con AI", use_container_width=True,
+                      help="Claude analizza ogni conto e lo associa alla voce più appropriata"):
+            _run_ai_mapping(df_piano, df_ricl, mapping, full=True)
+    with col_ai2:
+        n_nuovi = n_tot - n_mappati
+        if st.button(f"✨ Mappa solo i {n_nuovi} nuovi (AI)", use_container_width=True,
+                      disabled=(n_nuovi == 0)):
+            _run_ai_mapping(df_piano, df_ricl, mapping, full=False)
 
-    # Banner staging attivo
-    if staging is not None:
-        n_staging = len([v for v in staging.values() if v])
-        st.markdown(f"""
-        <div class="info-box info-box-amber">
-        <div>
-        ⚡ <b>Staging AI attivo</b> — {n_staging} conti suggeriti dall'AI in attesa di conferma.<br>
-        <span style="font-size:0.78rem;">Revisiona i suggerimenti sotto, poi <b>Accetta</b> o <b>Ripristina manuale</b>.</span>
-        </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col_acc, col_reset = st.columns(2)
-        with col_acc:
-            if st.button("✅ Accetta tutti i suggerimenti AI", type="primary", key="btn_accetta_staging"):
-                mapping.update(staging)
-                save_cliente({'mapping': mapping, 'mapping_staging': None})
-                st.success("Mapping AI accettato e salvato!")
-                st.rerun()
-        with col_reset:
-            if st.button("↩️ Ripristina a Manuale", key="btn_reset_staging"):
-                save_cliente({'mapping_staging': None})
-                st.info("Staging rimosso. Il mapping manuale è invariato.")
-                st.rerun()
-    else:
-        col_ai1, col_ai2 = st.columns(2)
-        with col_ai1:
-            if st.button("🤖 Suggerisci TUTTI i conti (AI)", use_container_width=True, key="btn_ai_all"):
-                _esegui_ai_staging(df_piano, df_ricl, mapping, full=True)
-        with col_ai2:
-            if st.button("✨ Suggerisci solo NUOVI (AI)", use_container_width=True,
-                          key="btn_ai_new", disabled=(n_rest == 0)):
-                _esegui_ai_staging(df_piano, df_ricl, mapping, full=False)
-
-    # ── MAPPATURA MANUALE ────────────────────────────────────────
+    # Revisione manuale
     st.markdown("---")
     st.markdown("#### ✏️ Revisione Manuale")
+    st.markdown("<div style='font-size:0.78rem;color:#475569;margin-bottom:12px'>🟢 = mappato &nbsp;·&nbsp; 🔴 = non mappato &nbsp;·&nbsp; Le voci mostrano le descrizioni, non i codici tecnici.</div>", unsafe_allow_html=True)
 
-    # Filtro
-    c_f1, c_f2 = st.columns([2, 1])
-    with c_f1:
-        filtro = st.radio("Mostra:", ["Tutti", "Solo non mappati", "Solo mappati"],
-                           horizontal=True, key="mapp_filtro_main")
-    with c_f2:
-        cerca = st.text_input("🔍 Cerca conto:", placeholder="codice o descrizione...",
-                               key="mapp_cerca", label_visibility="collapsed")
+    col_f1, col_f2 = st.columns([2, 3])
+    with col_f1:
+        filtro = st.radio("Mostra:", ["Tutti", "Non mappati", "Mappati"],
+                           horizontal=True, key="filt_map")
+    with col_f2:
+        cerca_conto = st.text_input("Cerca conto:", placeholder="codice o descrizione…",
+                                     key="cerca_conto_input", label_visibility="collapsed")
 
     conti_df = df_piano.copy()
+    mappati_set = {k for k, v in mapping.items() if v}
+    if filtro == "Non mappati":
+        conti_df = conti_df[~conti_df[col_cod_piano].astype(str).isin(mappati_set)]
+    elif filtro == "Mappati":
+        conti_df = conti_df[conti_df[col_cod_piano].astype(str).isin(mappati_set)]
+    if cerca_conto:
+        q = cerca_conto.lower()
+        mask = conti_df[col_cod_piano].astype(str).str.lower().str.contains(q)
+        if col_desc_piano and col_desc_piano != col_cod_piano:
+            mask |= conti_df[col_desc_piano].astype(str).str.lower().str.contains(q)
+        conti_df = conti_df[mask]
 
-    # Filtra per stato
-    if filtro == "Solo non mappati":
-        conti_df = conti_df[~conti_df[col_cod_piano].astype(str).isin(
-            [k for k, v in mapping.items() if v and str(v) != 'nan'])]
-    elif filtro == "Solo mappati":
-        conti_df = conti_df[conti_df[col_cod_piano].astype(str).isin(
-            [k for k, v in mapping.items() if v and str(v) != 'nan'])]
-
-    # Filtra per testo
-    if cerca.strip():
-        mask_cod = conti_df[col_cod_piano].astype(str).str.contains(cerca, case=False, na=False)
-        if col_desc_piano:
-            mask_desc = conti_df[col_desc_piano].astype(str).str.contains(cerca, case=False, na=False)
-            conti_df = conti_df[mask_cod | mask_desc]
-        else:
-            conti_df = conti_df[mask_cod]
-
-    if len(conti_df) > 60:
-        st.caption(f"Mostrando 60 di {len(conti_df)} conti. Usa i filtri per restringere.")
-        conti_df = conti_df.head(60)
-
-    voci_options = ['— Non mappato —'] + [
-        f"{cod} — {desc}" for cod, desc in voci_ricl_label.items()
-    ]
-
-    # Mapping staging sovrapposto visivamente
-    mapping_display = dict(mapping)
-    if staging:
-        mapping_display.update(staging)
+    if len(conti_df) > 80:
+        st.info(f"Mostro 80/{len(conti_df)} conti. Usa cerca/filtro per restringere.")
+        conti_df = conti_df.head(80)
 
     for _, row in conti_df.iterrows():
-        codice = str(row[col_cod_piano])
-        desc   = str(row.get(col_desc_piano, '')) if col_desc_piano else ''
-        voce_cod = mapping_display.get(codice)
+        codice = str(row[col_cod_piano]).strip()
+        if col_desc_piano and col_desc_piano != col_cod_piano:
+            desc = str(row.get(col_desc_piano, '')).strip()
+        else:
+            desc = ''
 
-        # Trova label attuale
-        if voce_cod and voce_cod in voci_ricl_label:
-            label_att = voci_ricl_label[voce_cod]
-            full_opt  = f"{voce_cod} — {df_ricl[df_ricl[col_cod_ricl].astype(str)==voce_cod][col_desc_ricl].values[0]}" if col_desc_ricl else voce_cod
-            idx = next((i for i, o in enumerate(voci_options) if o.startswith(voce_cod)), 0)
+        cod_att = mapping.get(codice)
+        if cod_att:
+            desc_att = label_map.get(str(cod_att), str(cod_att))
+            idx = voci_options.index(desc_att) if desc_att in voci_options else 0
         else:
             idx = 0
 
-        is_from_staging = staging and codice in staging
-        dot = "🟡" if is_from_staging else ("🟢" if voce_cod else "🔴")
-
+        dot = "🟢" if cod_att else "🔴"
         col_a, col_b = st.columns([2, 3])
         with col_a:
-            staging_hint = " <span style='font-size:0.68rem;color:#D97706;'>(AI)</span>" if is_from_staging else ""
             st.markdown(
-                f"<div style='padding:9px 4px; font-size:0.83rem; color:#374151;'>"
-                f"{dot} <b>{codice}</b>{staging_hint} &nbsp; {desc}</div>",
-                unsafe_allow_html=True
-            )
+                f"<div style='padding:9px 4px;font-size:0.82rem;color:#94A3B8'>"
+                f"{dot} <b style='color:#CBD5E1'>{codice}</b>"
+                f"{'<span style=\"color:#475569\"> — ' + desc[:35] + ('…' if len(desc)>35 else '') + '</span>' if desc else ''}"
+                f"</div>", unsafe_allow_html=True)
         with col_b:
-            sel = st.selectbox("x", voci_options, index=idx,
-                               label_visibility="collapsed", key=f"ms_{ca}_{codice}")
+            sel = st.selectbox("_", voci_options, index=idx,
+                               label_visibility="collapsed",
+                               key=f"mmap_{ca}_{codice}")
             if sel == '— Non mappato —':
                 mapping.pop(codice, None)
             else:
-                for opt in voci_options[1:]:
-                    if sel == opt:
-                        cod_sel = opt.split(' — ')[0]
-                        mapping[codice] = cod_sel
-                        break
+                mapping[codice] = desc_to_cod.get(sel, sel)
 
     save_cliente({'mapping': mapping})
-
     st.markdown("---")
-    colf1, colf2 = st.columns([1, 4])
-    with colf1:
-        if st.button("💾 Salva Mappatura", type="primary", key="btn_salva_map"):
-            save_cliente({'mapping': mapping, 'mapping_staging': None})
-            # Genera CSV esportabile come memory mapping
-            rows = [{'codice_conto': k, 'codice_voce_ricl': v} for k, v in mapping.items() if v]
-            csv = pd.DataFrame(rows).to_csv(index=False, sep=';').encode('utf-8-sig')
-            st.success(f"✅ {len([v for v in mapping.values() if v])} conti mappati")
-            st.download_button(
-                "⬇️ Esporta Memory Mapping",
-                data=csv,
-                file_name=f"memory_mapping_{ca}.csv",
-                mime="text/csv",
-                key="dl_mem"
-            )
+    if st.button("💾 Salva Mappatura", type="primary"):
+        save_cliente({'mapping': mapping})
+        st.success(f"✅ Mappatura salvata — {len([v for v in mapping.values() if v])} conti mappati")
 
 
-def _esegui_ai_staging(df_piano, df_ricl, mapping_corrente, full=True):
-    """Esegue la mappatura AI e mette il risultato in staging (non sovrascrive)."""
-    ca = st.session_state.get('cliente_attivo')
-    api_key = st.session_state.get('anthropic_api_key', '')
-    if not api_key:
+# ── API TAB ───────────────────────────────────────────────────────────────────
+def _render_api_tab():
+    st.markdown("### 🔑 API Key Anthropic")
+    st.markdown("""
+    <div style='background:rgba(245,158,11,0.06);border-left:3px solid #F59E0B;
+                border-radius:0 10px 10px 0;padding:14px 18px;font-size:0.83rem;
+                color:#64748B;margin-bottom:20px'>
+    La chiave API è necessaria per la <strong style='color:#E2E8F0'>mappatura automatica AI</strong>
+    e per il <strong style='color:#E2E8F0'>CFO Agent</strong>.<br>
+    Ottienila su <a href='https://console.anthropic.com' target='_blank'
+    style='color:#C9A84C'>console.anthropic.com</a>
+    &nbsp;·&nbsp; Per Gmail usa una <strong style='color:#E2E8F0'>App Password</strong>, non la password normale.
+    </div>""", unsafe_allow_html=True)
+
+    current = st.session_state.get('anthropic_api_key', '')
+    if not current:
         try:
-            import streamlit as st
-            api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+            import streamlit as _st
+            current = _st.secrets.get('ANTHROPIC_API_KEY', '')
+            if current:
+                st.session_state['anthropic_api_key'] = current
         except Exception:
             pass
+
+    if current:
+        masked = current[:12] + '•' * 16 + current[-4:]
+        st.markdown(f"<div style='color:#10B981;font-size:0.85rem;margin-bottom:12px'>✅ API Key attiva: <code>{masked}</code></div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div style='color:#EF4444;font-size:0.85rem;margin-bottom:12px'>🔴 Nessuna API Key configurata</div>", unsafe_allow_html=True)
+
+    new_key = st.text_input("Inserisci API Key:", type="password",
+                             placeholder="sk-ant-api03-…", key="ws_api_key_input")
+    if st.button("Salva API Key", type="primary") and new_key.strip():
+        st.session_state['anthropic_api_key'] = new_key.strip()
+        st.success("✅ Salvata per questa sessione")
+        st.rerun()
+
+    with st.expander("ℹ️ Come configurare in produzione"):
+        st.code('''# .streamlit/secrets.toml
+ANTHROPIC_API_KEY = "sk-ant-api03-..."''', language="toml")
+        st.caption("Questo file NON deve essere committato su GitHub. Aggiungilo al .gitignore.")
+
+
+# ── AI MAPPING HELPER ─────────────────────────────────────────────────────────
+def _run_ai_mapping(df_piano, df_ricl, mapping_corrente, full=True):
+    api_key = get_api_key()
     if not api_key:
-        st.error("⚠️ Configura la API Key Anthropic nel Tab 'API Key'.")
+        st.error("⚠️ Configura la API Key nel tab '🔑 API Key'.")
         return
 
-    with st.spinner("🤖 AI in elaborazione... ~20-40 secondi"):
+    with st.spinner("🤖 Claude in elaborazione… potrebbe richiedere 30-60 secondi"):
         try:
+            from services.ai_mapper import ai_suggest_mapping, ai_suggest_new_accounts
             if full:
                 nuovo = ai_suggest_mapping(df_piano, df_ricl, mapping_corrente)
             else:
                 nuovo = ai_suggest_new_accounts(df_piano, df_ricl, mapping_corrente)
 
-            if nuovo:
-                save_cliente({'mapping_staging': nuovo})
-                st.success(f"✅ AI ha suggerito {len(nuovo)} abbinamenti. Revisionali e accetta.")
-                st.rerun()
-            else:
-                st.warning("L'AI non ha prodotto suggerimenti. Verifica i file caricati.")
+            mapping_corrente.update(nuovo)
+            save_cliente({'mapping': mapping_corrente})
+            n = len([v for v in nuovo.values() if v])
+            st.success(f"✅ AI ha mappato {n} conti su {len(nuovo)} analizzati")
+            st.rerun()
         except Exception as e:
-            st.error(f"Errore AI: {e}")
-
-
-def _render_api_tab():
-    st.markdown("### 🔑 Configurazione API Anthropic")
-    st.markdown("""
-    <div class="info-box info-box-amber">
-    🔑 La API Key è necessaria per la mappatura AI, Sentinel intelligente e AI CFO.
-    Puoi ottenerla su <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.
-    In produzione, inseriscila nel file <code>.streamlit/secrets.toml</code>.
-    </div>
-    """, unsafe_allow_html=True)
-
-    curr = st.session_state.get('anthropic_api_key', '')
-    if curr:
-        masked = curr[:10] + '...' + curr[-4:]
-        st.markdown(f"""
-        <div class="info-box info-box-green">
-        ✅ API Key configurata: <code>{masked}</code>
-        </div>
-        """, unsafe_allow_html=True)
-
-    new_key = st.text_input("Inserisci o aggiorna API Key:",
-                             type="password", placeholder="sk-ant-api03-...")
-    if st.button("Salva", key="btn_salva_apikey") and new_key.strip():
-        st.session_state['anthropic_api_key'] = new_key.strip()
-        st.success("✅ API Key salvata per questa sessione.")
-        st.rerun()
-
-    st.markdown("---")
-    st.markdown("### 📋 Secrets.toml (per deploy su Streamlit Cloud)")
-    st.code('ANTHROPIC_API_KEY = "sk-ant-api03-la-tua-chiave"', language='toml')
-    st.caption("Incolla questo contenuto in: App Settings → Secrets su share.streamlit.io")
+            err = str(e)
+            if '401' in err:
+                st.error("🔑 API Key non valida. Verifica su console.anthropic.com")
+            elif 'invalid x-api-key' in err.lower():
+                st.error("🔑 API Key errata. Controlla di aver incollato la chiave corretta.")
+            else:
+                st.error(f"Errore: {err}")caption("Incolla questo contenuto in: App Settings → Secrets su share.streamlit.io")
