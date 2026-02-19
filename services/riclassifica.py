@@ -262,7 +262,7 @@ def calcola_kpi_finanziari(pivot, mesi_sel: list) -> dict:
     return kpi
 
 
-def calcola_trend(pivot, voce: str, n_mesi: int = 6) -> dict | None:
+def calcola_trend(pivot, voce: str, n_mesi: int = 6) -> object:
     """
     Calcola statistiche di trend per una voce specifica.
 
