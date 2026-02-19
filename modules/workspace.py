@@ -149,7 +149,7 @@ def _render_mappatura(ca, cliente):
     _stat_card(cols4[3], "Completamento",   f"{pct:.0f}%",             '#C9A84C')
 
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-    st.progress(pct / 100)
+    st.progress(min(1.0, max(0.0, float(pct / 100) if n_tot > 0 else 0.0)))
 
     # ── IMPORT / EXPORT ────────────────────────────────────────────────────
     with st.expander("📥 Import / Export Mappatura", expanded=(n_mappati == 0)):
