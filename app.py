@@ -2,9 +2,8 @@
 app.py — AI-Manager: Piattaforma Professionale di Controllo di Gestione.
 Entry point Streamlit con routing multi-pagina e design corporate premium.
 """
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+
 import streamlit as st
 
 st.set_page_config(
