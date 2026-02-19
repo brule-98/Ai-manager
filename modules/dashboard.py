@@ -1,18 +1,28 @@
+"""
+dashboard.py — Dashboard CE riclassificato premium.
+Design: clean corporate con Plotly dark theme.
+BUG FIX: KeyError su melt risolto con costruzione esplicita df_melted.
+"""
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import numpy as np
 import plotly.graph_objects as go
-from services.data_utils import get_cliente, save_cliente, fmt_eur, find_column
-from services.riclassifica import (
-    costruisci_ce_riclassificato, get_mesi_disponibili,
-    calcola_incidenza, calcola_variazione_mensile
+import plotly.express as px
+from services.data_utils import get_cliente, save_cliente, fmt_eur, fmt_pct
+from services.riclassifica import costruisci_ce_riclassificato, get_mesi_disponibili, calcola_kpi_finanziari
+
+PALETTE = ['#1A3A7A','#10B981','#C9A84C','#EF4444','#8B5CF6','#F59E0B','#06B6D4','#EC4899','#14B8A6','#6366F1']
+
+PLOTLY_BASE = dict(
+    plot_bgcolor='white', paper_bgcolor='white',
+    font=dict(family='DM Sans, Inter, -apple-system, sans-serif', color='#374151', size=11),
+    legend=dict(bgcolor='rgba(255,255,255,0)', bordercolor='#E2E8F0',
+                orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0,
+                font=dict(size=10)),
+    margin=dict(l=0, r=0, t=50, b=0),
+    hoverlabel=dict(bgcolor='white', bordercolor='#1A3A7A', font_color='#1A3A7A',
+                    font_family='DM Sans, sans-serif'),
 )
-
-
-@st.cache_data(show_spinner=False)
-def _cached_pivot(db_hash, piano_hash, mapping_hash, schema_hash, rettifiche_hash, sito):
-    """Cache del pivot per evitare ricalcoli inutili."""
-    return None  # Il caching reale richiede oggetti hashable; usato come flag
 
 
 def render_dashboard():
@@ -24,420 +34,458 @@ def render_dashboard():
     if not cliente:
         _empty_state(); return
 
-    df_db    = cliente.get('df_db')
-    df_piano = cliente.get('df_piano')
-    df_ricl  = cliente.get('df_ricl')
-    mapping  = cliente.get('mapping', {})
-    schema_nome = cliente.get('schema_attivo', '')
-    schema_config = cliente.get('schemi', {}).get(schema_nome, {})
-    rettifiche = [r for r in cliente.get('rettifiche', []) if r.get('attiva', True)]
-    sito = st.session_state.get('sito_attivo', 'Globale')
+    df_db      = cliente.get('df_db')
+    df_piano   = cliente.get('df_piano')
+    df_ricl    = cliente.get('df_ricl')
+    mapping    = cliente.get('mapping', {})
+    rettifiche = cliente.get('rettifiche', [])
+    budget     = cliente.get('budget', {})
+    schema_att = cliente.get('schema_attivo', '')
+    schema_cfg = cliente.get('schemi', {}).get(schema_att, {})
 
     if df_db is None or df_piano is None or df_ricl is None:
-        st.info("👋 Carica i dati nel **Workspace** per visualizzare la dashboard.")
-        _placeholder_kpi(); return
-
-    if not mapping:
-        st.warning("⚠️ Mappatura non configurata. Vai in **Workspace → Mappatura Conti**.")
+        st.markdown(f"""
+        <div style='background:#EEF2FF;border-left:4px solid #1A3A7A;padding:16px 20px;
+                    border-radius:0 10px 10px 0;margin:16px 0;font-size:0.9rem'>
+            <b>👋 Inizia dal Workspace</b> — Carica i tre file (Piano Conti, DB Contabile, Schema Riclassifica)
+            e configura la mappatura per vedere la Dashboard.
+        </div>""", unsafe_allow_html=True)
         return
 
-    # ── Costruisci CE ─────────────────────────────────────────────
-    pivot, errore = costruisci_ce_riclassificato(
-        df_db, df_piano, df_ricl, mapping, schema_config, rettifiche, sito
-    )
+    if not mapping:
+        st.warning("⚠️ Nessuna mappatura configurata. Vai in **Workspace → Mappatura Conti**.")
+        return
+
+    with st.spinner("⚙️ Elaborazione dati…"):
+        pivot, dettaglio, errore = costruisci_ce_riclassificato(
+            df_db, df_piano, df_ricl, mapping, schema_cfg, rettifiche
+        )
+
     if errore:
-        st.error(f"Errore CE: {errore}"); return
+        st.error(f"❌ {errore}"); return
 
-    # Mappa codice → descrizione umana
-    label_map = _build_label_map(df_ricl, schema_config)
-    mesi_disp = get_mesi_disponibili(pivot)
+    mesi = get_mesi_disponibili(pivot)
+    if not mesi:
+        st.warning("⚠️ Nessun dato mensile disponibile."); return
 
-    # ── HEADER ────────────────────────────────────────────────────
-    sito_label = f" — 🏭 {sito}" if sito != 'Globale' else ""
-    schema_label = f" · Schema: **{schema_nome}**" if schema_nome else ""
-    st.markdown(f"## 📊 Dashboard{sito_label}")
-    if schema_label:
-        st.markdown(f"<span style='font-size:0.8rem; color:#6B7280;'>{schema_label}</span>",
-                    unsafe_allow_html=True)
+    # ── HEADER ────────────────────────────────────────────────────────────────
+    col_h, col_s = st.columns([5, 2])
+    with col_h:
+        st.markdown(f"## 📊 Dashboard Controllo di Gestione")
+        st.markdown(f"<div style='color:#6B7280;font-size:0.82rem;margin-top:-10px'>{ca} &nbsp;·&nbsp; {len(mesi)} mesi di dati &nbsp;·&nbsp; Aggiornato ora</div>", unsafe_allow_html=True)
+    with col_s:
+        if schema_att:
+            st.markdown(f"<div style='text-align:right;padding-top:20px;font-size:0.78rem;color:#9CA3AF'>Schema: <b style='color:#374151'>{schema_att}</b></div>", unsafe_allow_html=True)
 
-    # ── FILTRI ────────────────────────────────────────────────────
-    with st.container():
-        st.markdown('<div class="card card-tight">', unsafe_allow_html=True)
-        c1, c2, c3 = st.columns([2, 3, 1])
-
+    # ── FILTRI ────────────────────────────────────────────────────────────────
+    with st.expander("🔍 Filtri & Confronto", expanded=True):
+        c1, c2, c3, c4 = st.columns([2, 3, 2, 1])
         with c1:
-            modalita = st.selectbox("Modalità:", [
-                "Mensile", "Periodo personalizzato", "YTD", "Anno completo"
-            ], key="d_mode")
-
+            modalita = st.selectbox("Periodo:", ["Mese singolo","Range mesi","YTD","Anno completo"], key="d_mod")
         with c2:
-            if not mesi_disp:
-                mesi_filtro = []
-            elif modalita == "Mensile":
-                m = st.selectbox("Mese:", mesi_disp, index=len(mesi_disp) - 1, key="d_mese")
-                mesi_filtro = [m]
-            elif modalita == "Periodo personalizzato":
-                sel = st.multiselect("Mesi:", mesi_disp, default=mesi_disp[-3:], key="d_multi")
-                mesi_filtro = sel or mesi_disp
+            anni = sorted(set(m[:4] for m in mesi), reverse=True)
+            if modalita == "Mese singolo":
+                mese_s = st.selectbox("Mese:", mesi, index=len(mesi)-1, key="d_mese")
+                mesi_filtro = [mese_s]
+            elif modalita == "Range mesi":
+                sel = st.multiselect("Mesi:", mesi, default=mesi[-3:], key="d_range")
+                mesi_filtro = sel or mesi[-3:]
             elif modalita == "YTD":
-                anni = sorted({m[:4] for m in mesi_disp}, reverse=True)
-                a = st.selectbox("Anno:", anni, key="d_anno_ytd")
-                mesi_filtro = [m for m in mesi_disp if m.startswith(a)]
+                anno_y = st.selectbox("Anno:", anni, key="d_ytd")
+                mesi_filtro = [m for m in mesi if m.startswith(str(anno_y))]
             else:
-                anni = sorted({m[:4] for m in mesi_disp}, reverse=True)
-                a = st.selectbox("Anno:", anni, key="d_anno_full")
-                mesi_filtro = [m for m in mesi_disp if m.startswith(a)]
-
+                anno_y = st.selectbox("Anno:", anni, key="d_ay")
+                mesi_filtro = [m for m in mesi if m.startswith(str(anno_y))]
         with c3:
-            mostra_incidenza = st.checkbox("% su Ricavi", value=True, key="d_pct")
-
-        st.markdown('</div>', unsafe_allow_html=True)
+            anno_conf = st.selectbox("Confronta vs:", ['— nessuno —'] + anni, key="d_conf")
+        with c4:
+            mostra_bud = st.checkbox("Budget", value=bool(budget), key="d_bud")
 
     cols_filtro = [c for c in mesi_filtro if c in pivot.columns]
     if not cols_filtro:
-        st.warning("Nessun dato per il periodo selezionato."); return
+        st.warning("Nessun dato per il periodo."); return
 
-    pivot_f = pivot[cols_filtro].copy()
-    pivot_f['TOTALE PERIODO'] = pivot_f.sum(axis=1)
+    # Dati confronto
+    pf      = pivot[cols_filtro].copy()
+    pf['_PERIODO'] = pf.sum(axis=1)
 
-    # ── KPI CARDS ─────────────────────────────────────────────────
-    _render_kpi_cards(pivot_f, pivot, mesi_filtro, mesi_disp)
-    st.markdown("---")
+    pf_conf = None
+    if anno_conf != '— nessuno —':
+        mesi_num = {m[5:] for m in cols_filtro}
+        cols_conf_raw = [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in mesi_num]
+        if cols_conf_raw:
+            pf_conf = pivot[cols_conf_raw].copy()
+            pf_conf['_PERIODO'] = pf_conf.sum(axis=1)
 
-    # ── TABS REPORT / GRAFICI ─────────────────────────────────────
-    tab_rep, tab_graf, tab_var = st.tabs([
-        "📋 Report CE", "📈 Trend & Analisi", "📉 Variazioni MoM"
-    ])
+    kpi = calcola_kpi_finanziari(pivot, cols_filtro)
+    kpi_conf = calcola_kpi_finanziari(pivot, [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in {m[5:] for m in cols_filtro}]) if anno_conf != '— nessuno —' else {}
 
-    with tab_rep:
-        _render_ce_table(pivot_f, schema_config, label_map, cols_filtro, mostra_incidenza, pivot)
+    # ── ALERT BUDGET ──────────────────────────────────────────────────────────
+    if mostra_bud and budget:
+        _render_budget_alerts(pf, budget, cols_filtro)
 
-    with tab_graf:
-        _render_grafici(pivot, mesi_disp, label_map, schema_config)
+    # ── KPI CARDS ─────────────────────────────────────────────────────────────
+    _render_kpi_cards(kpi, kpi_conf, anno_conf)
 
-    with tab_var:
-        _render_variazioni(pivot, mesi_disp, label_map)
+    st.markdown("<hr style='border-color:#F1F5F9;margin:20px 0'>", unsafe_allow_html=True)
 
+    # ── TABS ──────────────────────────────────────────────────────────────────
+    tab_ce, tab_grafici, tab_budget = st.tabs(["📋 Conto Economico", "📈 Grafici & Analisi", "🎯 Budget"])
 
-def _build_label_map(df_ricl, schema_config: dict) -> dict:
-    """Costruisce mappa codice_voce → etichetta umana."""
-    label_map = {}
+    with tab_ce:
+        _render_tabella_ce(ca, pf, dettaglio, cols_filtro, pf_conf, anno_conf, mostra_bud, budget, mesi_filtro)
 
-    # Prima: override da schema_config
-    if schema_config:
-        for k, v in schema_config.items():
-            if v.get('descrizione_override'):
-                label_map[k] = v['descrizione_override']
+    with tab_grafici:
+        _render_grafici(pivot, mesi, kpi)
 
-    # Poi: da df_ricl
-    if df_ricl is not None:
-        col_cod  = find_column(df_ricl, ['Codice', 'codice', 'Voce', 'voce', 'ID'])
-        col_desc = find_column(df_ricl, ['Descrizione', 'descrizione', 'voce', 'Voce', 'Nome'])
-        if col_cod and col_desc:
-            for _, row in df_ricl.iterrows():
-                k = str(row[col_cod])
-                if k not in label_map:
-                    label_map[k] = str(row[col_desc])
-    return label_map
+    with tab_budget:
+        from modules.budget import render_budget_inline
+        render_budget_inline(cliente, pivot, mesi, ca)
 
 
-def _render_kpi_cards(pivot_f, pivot_full, mesi_filtro, mesi_disp):
-    kpi_keywords = [
-        (['ricav', 'fattur', 'vendite', 'revenue'], "Ricavi Netti", "#1A3A7A"),
-        (['ebitda', 'mol ', 'margine lordo'], "EBITDA / MOL", "#059669"),
-        (['ebit', 'reddito op', 'risultato op'], "EBIT", "#7C3AED"),
-        (['utile netto', 'risultato netto', 'reddito netto'], "Risultato Netto", "#DC2626"),
+# ─────────────────────────────────────────────────────────────────────────────
+# KPI CARDS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_kpi_cards(kpi, kpi_conf, anno_conf):
+    def card(label, val, unit, color, conf_val):
+        if val is None:
+            return f"""<div class='dash-kpi-card' style='border-left-color:#CBD5E1;opacity:.5'>
+                <div class='dkc-label'>{label}</div>
+                <div class='dkc-value' style='color:#CBD5E1'>—</div>
+            </div>"""
+        v_fmt = f"{val:.1f}{unit}" if unit == '%' else fmt_eur(val)
+        delta_html = ""
+        if conf_val is not None and conf_val != 0:
+            delta_pct = (val - conf_val) / abs(conf_val) * 100
+            clr = '#059669' if delta_pct >= 0 else '#DC2626'
+            sym = '▲' if delta_pct >= 0 else '▼'
+            delta_html = f"<div class='dkc-delta' style='color:{clr}'>{sym} {abs(delta_pct):.1f}% vs {anno_conf}</div>"
+        return f"""<div class='dash-kpi-card' style='border-left-color:{color}'>
+            <div class='dkc-label'>{label}</div>
+            <div class='dkc-value' style='color:{color}'>{v_fmt}</div>
+            {delta_html}
+        </div>"""
+
+    kpi_defs = [
+        ('Ricavi Netti',   kpi.get('ricavi'),        '€',  '#1A3A7A', kpi_conf.get('ricavi')),
+        ('EBITDA / MOL',  kpi.get('ebitda'),        '€',  '#059669', kpi_conf.get('ebitda')),
+        ('EBITDA Margin', kpi.get('ebitda_margin'), '%', '#7C3AED',  kpi_conf.get('ebitda_margin')),
+        ('Risultato Netto',kpi.get('utile_netto'),  '€',  '#DC2626', kpi_conf.get('utile_netto')),
     ]
 
-    cols = st.columns(4)
-    for i, (keywords, label, color) in enumerate(kpi_keywords):
-        voce = next((v for v in pivot_f.index
-                     if any(k in v.lower() for k in keywords)), None)
-        with cols[i]:
-            if voce:
-                val = pivot_f.loc[voce, 'TOTALE PERIODO']
-                delta_html = _calc_delta_html(voce, val, pivot_full, mesi_filtro, mesi_disp)
-                st.markdown(f"""
-                <div class="kpi-card" style="border-left-color:{color}">
-                    <div class="kpi-label">{label}</div>
-                    <div class="kpi-value mono" style="color:{color}">{fmt_eur(val)}</div>
-                    {delta_html}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="kpi-card" style="border-left-color:#E5E7EB; opacity:0.45">
-                    <div class="kpi-label">{label}</div>
-                    <div class="kpi-value" style="color:#D1D5DB">— €</div>
-                </div>
-                """, unsafe_allow_html=True)
+    cards_html = "".join(card(*d) for d in kpi_defs)
+    st.markdown(f"""
+    <style>
+    .dash-kpi-row {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }}
+    .dash-kpi-card {{ background:white; border-radius:12px; padding:16px 18px;
+                      box-shadow:0 1px 8px rgba(0,0,0,.07); border-left:4px solid #1A3A7A;
+                      transition:transform .15s, box-shadow .15s; }}
+    .dash-kpi-card:hover {{ transform:translateY(-2px); box-shadow:0 4px 16px rgba(0,0,0,.1); }}
+    .dkc-label {{ font-size:0.7rem; text-transform:uppercase; letter-spacing:1px; color:#8896AB; font-weight:700; margin-bottom:6px; }}
+    .dkc-value {{ font-size:1.45rem; font-weight:700; color:#0F2044; letter-spacing:-0.5px; margin-bottom:4px; }}
+    .dkc-delta {{ font-size:0.78rem; font-weight:600; }}
+    </style>
+    <div class='dash-kpi-row'>{cards_html}</div>""", unsafe_allow_html=True)
 
 
-def _calc_delta_html(voce, val, pivot_full, mesi_filtro, mesi_disp) -> str:
-    try:
-        n = len(mesi_filtro)
-        idx = mesi_disp.index(min(mesi_filtro))
-        if idx >= n:
-            mesi_prec = mesi_disp[idx - n: idx]
-            cols_prec = [c for c in mesi_prec if c in pivot_full.columns]
-            if cols_prec and voce in pivot_full.index:
-                val_prec = pivot_full.loc[voce, cols_prec].sum()
-                if val_prec != 0:
-                    pct = (val - val_prec) / abs(val_prec) * 100
-                    arrow = "▲" if pct >= 0 else "▼"
-                    css   = "delta-up" if pct >= 0 else "delta-down"
-                    return f'<div class="kpi-delta"><span class="{css}">{arrow} {abs(pct):.1f}% vs periodo prec.</span></div>'
-    except Exception:
-        pass
-    return ""
+# ─────────────────────────────────────────────────────────────────────────────
+# TABELLA CE — 2 livelli con drill-down
+# ─────────────────────────────────────────────────────────────────────────────
 
+def _render_tabella_ce(ca, pf, dettaglio, cols_filtro, pf_conf, anno_conf, mostra_bud, budget, mesi_filtro):
+    st.markdown("### 📋 Conto Economico Riclassificato")
+    st.markdown("""
+    <div style='font-size:0.79rem;color:#6B7280;margin-bottom:16px;padding:10px 14px;
+                background:#F8FAFC;border-radius:6px;border-left:3px solid #CBD5E8'>
+    💡 Clicca su <b>▶ una voce</b> per espandere il dettaglio dei singoli conti contabili.
+    I valori mensili sono visibili nella riga di riepilogo.
+    </div>""", unsafe_allow_html=True)
 
-def _render_ce_table(pivot_f, schema_config, label_map, cols_filtro, mostra_incidenza, pivot_full):
-    st.markdown("#### Conto Economico Riclassificato")
-
-    df_disp = pivot_f.copy()
-
-    # Rinomina indice con label umane
-    df_disp.index = [label_map.get(v, v) for v in df_disp.index]
-
-    # Colonna Incidenza %
-    if mostra_incidenza:
-        inc = calcola_incidenza(pivot_full)
-        if not inc.empty:
-            inc.index = [label_map.get(v, v) for v in inc.index]
-            df_disp['Inc. %'] = inc.reindex(df_disp.index)
-
-    fmt_cols = [c for c in df_disp.columns if c not in ['Inc. %']]
-
-    def fmt_eur_cell(v):
+    def fmt(v, zero_dash=True):
         try:
             fv = float(v)
-            s = f"{abs(fv):,.0f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            if zero_dash and fv == 0:
+                return "—"
+            s = f"{abs(fv):>12,.0f}".replace(',','X').replace('.',',').replace('X','.')
             return f"({s} €)" if fv < 0 else f"{s} €"
         except Exception:
             return str(v)
 
-    def fmt_pct_cell(v):
-        try:
-            return f"{float(v):.1f}%"
-        except Exception:
-            return "—"
+    for voce in pf.index:
+        val_tot = float(pf.loc[voce, '_PERIODO']) if '_PERIODO' in pf.columns else 0
+        val_fmt = fmt(val_tot)
 
-    # Identifica righe subtotali per styling
-    subtotal_rows = set()
-    highlight_rows = set()
-    if schema_config:
-        for cod, cfg in schema_config.items():
-            label = label_map.get(cod, cod)
-            if cfg.get('subtotale'):
-                subtotal_rows.add(label)
-            if cfg.get('style_class') == 'highlight':
-                highlight_rows.add(label)
+        # Colore basato su segno
+        color_val = '#059669' if val_tot > 0 else ('#DC2626' if val_tot < 0 else '#6B7280')
 
-    def row_style(row):
-        label = row.name
-        if label in subtotal_rows:
-            return [
-                'font-weight:700; background-color:#0F2044; color:white;'
-            ] * len(row)
-        if label in highlight_rows:
-            return [
-                'font-weight:600; background-color:#EEF4FF; color:#1A3A7A;'
-            ] * len(row)
-        return [''] * len(row)
+        with st.expander(f"**{voce}**  —  {val_fmt}", expanded=False):
+            # Riga riepilogo mensile
+            row_data = {}
+            for c in cols_filtro:
+                if c in pf.columns:
+                    row_data[c.replace('-','\u2011')] = fmt(pf.loc[voce, c])
+            row_data['▶ TOTALE PERIODO'] = val_fmt
 
-    def cell_color(val):
-        try:
-            v = float(str(val).replace('(','').replace(')','').replace(' €','')
-                     .replace('.','').replace(',','.'))
-            if v < 0:
-                return 'color: #B91C1C;'
-            elif v > 0:
-                return 'color: #065F46;'
-        except Exception:
-            pass
-        return ''
+            if pf_conf is not None and voce in pf_conf.index:
+                val_c = float(pf_conf.loc[voce, '_PERIODO']) if '_PERIODO' in pf_conf.columns else 0
+                delta_a = val_tot - val_c
+                delta_p = (delta_a / abs(val_c) * 100) if val_c != 0 else 0
+                row_data[f'Conf. {anno_conf}'] = fmt(val_c)
+                row_data['Δ Assoluto'] = fmt(delta_a)
+                row_data['Δ %'] = f"{delta_p:+.1f}%"
 
-    fmt_dict = {c: fmt_eur_cell for c in fmt_cols}
-    if 'Inc. %' in df_disp.columns:
-        fmt_dict['Inc. %'] = fmt_pct_cell
+            if mostra_bud and budget and voce in budget:
+                bud_tot = sum(budget[voce].get(m, 0) for m in cols_filtro)
+                row_data['Budget'] = fmt(bud_tot)
+                row_data['Scostamento'] = fmt(val_tot - bud_tot)
 
-    styled = (
-        df_disp.style
-        .apply(row_style, axis=1)
-        .applymap(cell_color, subset=fmt_cols)
-        .format(fmt_dict)
-        .set_table_styles([
-            {'selector': 'thead th',
-             'props': [('background-color', '#0F2044'), ('color', 'white'),
-                       ('font-size', '0.73rem'), ('padding', '9px 14px'),
-                       ('text-align', 'right'), ('white-space', 'nowrap')]},
-            {'selector': 'th.row_heading',
-             'props': [('text-align', 'left'), ('font-size', '0.82rem'),
-                       ('padding', '8px 14px'), ('min-width', '180px')]},
-            {'selector': 'td',
-             'props': [('font-size', '0.82rem'), ('padding', '8px 14px'),
-                       ('text-align', 'right'), ('font-family', "'JetBrains Mono', monospace")]},
-        ])
-    )
+            df_row = pd.DataFrame([row_data])
+            st.dataframe(df_row, use_container_width=True, hide_index=True)
 
-    st.dataframe(styled, use_container_width=True, height=480)
+            # Dettaglio conti
+            if voce in dettaglio and not dettaglio[voce].empty:
+                st.markdown("**Dettaglio per conto:**")
+                det = dettaglio[voce]
+                cols_det = [c for c in cols_filtro if c in det.columns] + ['TOTALE']
+                det_show = det[[c for c in cols_det if c in det.columns]].copy()
+                det_show_fmt = det_show.applymap(lambda x: fmt(x) if isinstance(x, (int, float)) else str(x))
+                st.dataframe(
+                    det_show_fmt,
+                    use_container_width=True,
+                    height=min(38*len(det_show)+40, 320)
+                )
 
-    csv = pivot_f.to_csv(decimal=',', sep=';').encode('utf-8-sig')
-    st.download_button("⬇️ Esporta CSV", data=csv,
-                       file_name=f"CE_{st.session_state.get('cliente_attivo','')}.csv",
-                       mime="text/csv", key="dl_ce")
+    # Export
+    st.markdown("---")
+    export_df = pf[[c for c in cols_filtro if c in pf.columns] + ['_PERIODO']].copy()
+    export_df = export_df.rename(columns={'_PERIODO': 'TOTALE PERIODO'})
+    csv = export_df.to_csv(decimal=',', sep=';').encode('utf-8-sig')
+    st.download_button("⬇️ Esporta CE (CSV)", data=csv,
+                       file_name=f"CE_{ca}_{'-'.join(mesi_filtro[:2])}.csv", mime="text/csv")
 
 
-def _render_grafici(pivot, mesi_disp, label_map, schema_config):
-    if not mesi_disp:
-        st.info("Nessun dato temporale."); return
+# ─────────────────────────────────────────────────────────────────────────────
+# GRAFICI — BUG FIXED + ENHANCED
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_grafici(pivot, mesi, kpi):
+    st.markdown("### 📈 Analisi Grafici & Trend")
 
     voci = list(pivot.index)
-    voci_labels = [label_map.get(v, v) for v in voci]
-    voci_options = [f"{label_map.get(v, v)}" for v in voci]
+    cols_mesi = [c for c in mesi if c in pivot.columns]
+    if not cols_mesi:
+        st.info("Nessun dato temporale."); return
 
-    c1, c2 = st.columns([3, 1])
+    c1, c2, c3 = st.columns([3, 2, 1])
     with c1:
-        sel_labels = st.multiselect(
-            "Voci da analizzare:",
-            voci_options,
-            default=voci_options[:4] if len(voci_options) >= 4 else voci_options,
-            key="g_voci"
-        )
+        voci_sel = st.multiselect("Voci da visualizzare:", voci,
+            default=voci[:min(4, len(voci))], key="g_voci")
     with c2:
-        tipo = st.radio("Tipo:", ["Barre", "Linee", "Stacked"], horizontal=False, key="g_tipo")
+        tipo = st.radio("Tipo:", ["Linee", "Barre", "Stacked", "Area"], horizontal=True, key="g_tipo")
+    with c3:
+        n_m = st.slider("Mesi:", 3, len(cols_mesi), min(12, len(cols_mesi)), key="g_nm")
 
-    if not sel_labels:
+    mesi_plot = cols_mesi[-n_m:]
+
+    if not voci_sel:
         st.info("Seleziona almeno una voce."); return
 
-    # Ricava codici dai label
-    label_to_cod = {label_map.get(v, v): v for v in voci}
-    sel_codici = [label_to_cod.get(l, l) for l in sel_labels]
+    # ── BUG FIX: costruzione df_melted row-by-row, NO transpose+melt ─────────
+    rows = []
+    for voce in voci_sel:
+        if voce not in pivot.index:
+            continue
+        for m in mesi_plot:
+            if m in pivot.columns:
+                rows.append({
+                    'Mese':    m,
+                    'Voce':    str(voce)[:30],
+                    'Importo': float(pivot.loc[voce, m]),
+                })
+    if not rows:
+        st.info("Nessun dato per le voci e il periodo selezionati."); return
 
-    cols_mesi = [c for c in mesi_disp if c in pivot.columns]
-    df_plot = pivot.loc[sel_codici, cols_mesi].copy()
-    df_plot.index = sel_labels
-    df_melted = df_plot.T.reset_index().melt(id_vars='index', var_name='Voce', value_name='Importo')
-    df_melted.columns = ['Mese', 'Voce', 'Importo']
+    df_m = pd.DataFrame(rows)
+    color_map = {str(v)[:30]: PALETTE[i % len(PALETTE)] for i, v in enumerate(voci_sel)}
 
-    colors = ['#1A3A7A', '#059669', '#7C3AED', '#D97706', '#DC2626', '#0891B2', '#BE185D', '#065F46']
-
-    fig_args = dict(
-        data_frame=df_melted, x='Mese', y='Importo', color='Voce',
-        color_discrete_sequence=colors,
-        labels={'Importo': '€', 'Mese': 'Periodo'}
-    )
-    if tipo == "Barre":
-        fig = px.bar(**fig_args, barmode='group')
-    elif tipo == "Linee":
-        fig = px.line(**fig_args, markers=True)
-        fig.update_traces(line=dict(width=2.5))
-    else:
-        fig = px.bar(**fig_args, barmode='stack')
+    if tipo == "Linee":
+        fig = px.line(df_m, x='Mese', y='Importo', color='Voce',
+                      markers=True, color_discrete_map=color_map)
+        fig.update_traces(line=dict(width=2.5), marker=dict(size=7, line=dict(width=2, color='white')))
+    elif tipo == "Barre":
+        fig = px.bar(df_m, x='Mese', y='Importo', color='Voce',
+                     barmode='group', color_discrete_map=color_map)
+    elif tipo == "Stacked":
+        fig = px.bar(df_m, x='Mese', y='Importo', color='Voce',
+                     barmode='stack', color_discrete_map=color_map)
+    else:  # Area
+        fig = px.area(df_m, x='Mese', y='Importo', color='Voce',
+                      color_discrete_map=color_map)
 
     fig.update_layout(
-        plot_bgcolor='white', paper_bgcolor='white',
-        font=dict(family='DM Sans', size=12),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0),
-        margin=dict(l=10, r=10, t=60, b=10),
-        xaxis=dict(showgrid=False, tickangle=-30, tickfont=dict(size=11)),
-        yaxis=dict(showgrid=True, gridcolor='#F1F5F9', tickformat=',.0f'),
-        height=400
+        **PLOTLY_BASE, height=380,
+        xaxis=dict(showgrid=False, tickangle=-30, title='', color='#6B7280',
+                   tickfont=dict(size=10), linecolor='#E2E8F0'),
+        yaxis=dict(showgrid=True, gridcolor='#F8FAFC', tickformat=',.0f', ticksuffix=' €',
+                   color='#6B7280', tickfont=dict(size=10), title=''),
+        bargap=0.2,
     )
     fig.update_traces(hovertemplate='<b>%{x}</b><br>%{y:,.0f} €<extra>%{fullData.name}</extra>')
     st.plotly_chart(fig, use_container_width=True)
 
-    # Waterfall
-    st.markdown("---")
-    st.markdown("#### Waterfall Mensile")
-    voce_wf_label = st.selectbox("Seleziona voce:", voci_options, key="g_wf_voce")
-    voce_wf_cod = label_to_cod.get(voce_wf_label, voce_wf_label)
+    # ── 2 colonne: Waterfall + Trend ultimi 3m ────────────────────────────────
+    col_a, col_b = st.columns(2)
 
-    if voce_wf_cod in pivot.index:
-        vals = pivot.loc[voce_wf_cod, cols_mesi].tolist()
-        fig_wf = go.Figure(go.Waterfall(
-            orientation='v', x=cols_mesi, y=vals,
-            connector={'line': {'color': '#E5E7EB'}},
-            increasing={'marker': {'color': '#059669'}},
-            decreasing={'marker': {'color': '#DC2626'}},
-            totals={'marker': {'color': '#1A3A7A'}},
-            texttemplate='%{y:,.0f}',
-            textposition='outside',
-        ))
-        fig_wf.update_layout(
-            plot_bgcolor='white', paper_bgcolor='white',
-            margin=dict(l=10, r=10, t=20, b=10),
-            xaxis=dict(showgrid=False, tickangle=-30),
-            yaxis=dict(showgrid=True, gridcolor='#F1F5F9'),
-            font=dict(family='DM Sans', size=12),
-            height=320
+    with col_a:
+        st.markdown("#### 🌊 Waterfall Mensile")
+        voce_wf = st.selectbox("Voce:", voci, key="wf_voce_sel")
+        if voce_wf in pivot.index:
+            vals_wf = [float(pivot.loc[voce_wf, m]) for m in mesi_plot]
+            fig_wf = go.Figure(go.Waterfall(
+                orientation='v', x=mesi_plot, y=vals_wf,
+                connector=dict(line=dict(color='#E2E8F0', width=1)),
+                increasing=dict(marker=dict(color='#059669', line=dict(width=0))),
+                decreasing=dict(marker=dict(color='#DC2626', line=dict(width=0))),
+                totals=dict(marker=dict(color='#1A3A7A', line=dict(width=0))),
+            ))
+            fig_wf.update_layout(
+                **PLOTLY_BASE, height=310,
+                xaxis=dict(showgrid=False, tickangle=-30, color='#6B7280', tickfont=dict(size=9)),
+                yaxis=dict(showgrid=True, gridcolor='#F8FAFC', tickformat=',.0f', ticksuffix=' €',
+                           color='#6B7280', tickfont=dict(size=9)),
+                margin=dict(l=0, r=0, t=20, b=0),
+            )
+            st.plotly_chart(fig_wf, use_container_width=True)
+
+    with col_b:
+        st.markdown("#### 📊 Composizione Periodo")
+        mese_pie = st.selectbox("Mese:", mesi_plot, index=len(mesi_plot)-1, key="pie_mese")
+        if mese_pie in pivot.columns:
+            vals_pie = {str(v)[:25]: float(pivot.loc[v, mese_pie]) for v in voci_sel if v in pivot.index}
+            pos_pie = {k: v for k, v in vals_pie.items() if v > 0}
+            if pos_pie:
+                fig_pie = go.Figure(go.Pie(
+                    labels=list(pos_pie.keys()),
+                    values=list(pos_pie.values()),
+                    marker=dict(colors=PALETTE[:len(pos_pie)], line=dict(color='white', width=2)),
+                    textposition='inside', textinfo='percent+label',
+                    insidetextfont=dict(size=10),
+                    hovertemplate='<b>%{label}</b><br>%{value:,.0f} €<br>%{percent}<extra></extra>',
+                    hole=0.35,
+                ))
+                fig_pie.update_layout(
+                    **PLOTLY_BASE, height=310,
+                    showlegend=False,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+    # ── Heatmap ──────────────────────────────────────────────────────────────
+    if len(voci_sel) > 2:
+        st.markdown("#### 🗺️ Heatmap — Intensità Voci × Mesi")
+        hm = pivot.loc[voci_sel, [m for m in mesi_plot if m in pivot.columns]]
+        hm_norm = hm.div(hm.abs().max(axis=1).replace(0, 1), axis=0)
+        fig_hm = px.imshow(
+            hm_norm.values,
+            labels=dict(x="Mese", y="Voce", color="Intensità normalizzata"),
+            x=list(hm_norm.columns),
+            y=[str(v)[:30] for v in hm_norm.index],
+            color_continuous_scale=[[0,'#FECACA'],[0.5,'#EEF2FF'],[1,'#1A3A7A']],
+            aspect='auto',
+            text_auto=False,
         )
-        st.plotly_chart(fig_wf, use_container_width=True)
+        fig_hm.update_traces(
+            text=[[f"{v:,.0f}€" for v in row] for row in hm.values],
+            texttemplate="%{text}",
+            textfont=dict(size=9, color='#374151'),
+        )
+        fig_hm.update_layout(
+            plot_bgcolor='white', paper_bgcolor='white',
+            margin=dict(l=0, r=0, t=20, b=10),
+            xaxis=dict(tickangle=-30, tickfont=dict(size=9), color='#6B7280'),
+            yaxis=dict(tickfont=dict(size=9), color='#6B7280'),
+            height=max(220, 45*len(voci_sel)+60),
+            font=dict(family='DM Sans, sans-serif', size=10),
+            coloraxis_showscale=False,
+        )
+        st.plotly_chart(fig_hm, use_container_width=True)
+
+    # ── Margini mensili ──────────────────────────────────────────────────────
+    st.markdown("#### 📉 Evoluzione Margini Mensili")
+    margin_rows = []
+    for m in mesi_plot:
+        kpi_m = calcola_kpi_finanziari(pivot, [m])
+        for k, label, color in [
+            ('ebitda_margin', 'EBITDA Margin', '#059669'),
+            ('net_margin',    'Net Margin',    '#1A3A7A'),
+            ('cost_labor_pct','% Personale/Ricavi', '#DC2626'),
+        ]:
+            v = kpi_m.get(k)
+            if v is not None:
+                margin_rows.append({'Mese': m, 'KPI': label, 'Valore': v})
+
+    if margin_rows:
+        df_marg = pd.DataFrame(margin_rows)
+        color_disc = {'EBITDA Margin': '#059669', 'Net Margin': '#1A3A7A', '% Personale/Ricavi': '#DC2626'}
+        fig_marg = px.line(df_marg, x='Mese', y='Valore', color='KPI',
+                           markers=True, color_discrete_map=color_disc)
+        fig_marg.add_hline(y=0, line_dash='dot', line_color='#CBD5E1')
+        fig_marg.update_traces(line=dict(width=2.5), marker=dict(size=7, line=dict(width=2, color='white')))
+        fig_marg.update_layout(
+            **PLOTLY_BASE, height=280,
+            yaxis=dict(ticksuffix='%', showgrid=True, gridcolor='#F8FAFC', color='#6B7280',
+                       title='', tickfont=dict(size=10), zerolinecolor='#CBD5E1'),
+            xaxis=dict(showgrid=False, tickangle=-30, color='#6B7280', title='', tickfont=dict(size=10)),
+            margin=dict(l=0, r=0, t=10, b=0),
+        )
+        fig_marg.update_traces(hovertemplate='<b>%{x}</b><br>%{y:.1f}%<extra>%{fullData.name}</extra>')
+        st.plotly_chart(fig_marg, use_container_width=True)
 
 
-def _render_variazioni(pivot, mesi_disp, label_map):
-    st.markdown("#### Variazioni Mese su Mese (%)")
+# ─────────────────────────────────────────────────────────────────────────────
+# ALERT BUDGET
+# ─────────────────────────────────────────────────────────────────────────────
 
-    df_var = calcola_variazione_mensile(pivot)
-    if df_var is None:
-        st.info("Servono almeno 2 mesi di dati per il calcolo delle variazioni.")
+def _render_budget_alerts(pf, budget, cols_filtro):
+    alert_list = []
+    for voce in pf.index:
+        if voce not in budget:
+            continue
+        val_eff = float(pf.loc[voce, '_PERIODO']) if '_PERIODO' in pf.columns else sum(float(pf.loc[voce, c]) for c in cols_filtro if c in pf.columns)
+        val_bud = sum(budget[voce].get(m, 0) for m in cols_filtro)
+        if val_bud == 0:
+            continue
+        scost_pct = (val_eff - val_bud) / abs(val_bud) * 100
+        if abs(scost_pct) >= 15:
+            alert_list.append((voce, val_eff, val_bud, scost_pct))
+
+    if not alert_list:
         return
 
-    df_var.index = [label_map.get(v, v) for v in df_var.index]
-
-    def color_pct(val):
-        try:
-            v = float(val)
-            if v < -20: return 'background-color:#FEE2E2; color:#991B1B; font-weight:600;'
-            if v < 0:   return 'background-color:#FEF3C7; color:#92400E;'
-            if v > 20:  return 'background-color:#D1FAE5; color:#065F46; font-weight:600;'
-            if v > 0:   return 'background-color:#ECFDF5; color:#059669;'
-        except Exception:
-            pass
-        return ''
-
-    def fmt_var(v):
-        try:
-            fv = float(v)
-            s = f"{fv:+.1f}%"
-            return s
-        except Exception:
-            return '—'
-
-    styled = (
-        df_var.style
-        .applymap(color_pct)
-        .format(fmt_var)
-        .set_table_styles([
-            {'selector': 'thead th',
-             'props': [('background-color', '#0F2044'), ('color', 'white'),
-                       ('font-size', '0.72rem'), ('padding', '8px 12px'), ('text-align', 'center')]},
-            {'selector': 'td',
-             'props': [('font-size', '0.82rem'), ('padding', '7px 12px'), ('text-align', 'center'),
-                       ('font-family', "'JetBrains Mono', monospace")]},
-            {'selector': 'th.row_heading',
-             'props': [('text-align', 'left'), ('font-size', '0.8rem'), ('padding', '7px 14px')]},
-        ])
-    )
-    st.dataframe(styled, use_container_width=True, height=420)
+    st.markdown("#### ⚠️ Alert Scostamenti Budget")
+    n_cols = min(len(alert_list), 3)
+    cols = st.columns(n_cols)
+    for i, (voce, eff, bud, pct) in enumerate(alert_list[:6]):
+        with cols[i % n_cols]:
+            color = '#DC2626' if pct < 0 else '#D97706'
+            bg    = '#FEF2F2' if pct < 0 else '#FFFBEB'
+            sym   = '▼' if pct < 0 else '▲'
+            st.markdown(f"""
+            <div style='background:{bg};border-left:4px solid {color};border-radius:8px;
+                        padding:12px 14px;margin-bottom:10px'>
+                <div style='font-size:0.7rem;font-weight:700;color:{color};text-transform:uppercase;
+                            letter-spacing:.7px'>{sym} Alert Budget</div>
+                <div style='font-weight:600;font-size:0.86rem;margin:4px 0;color:#1F2937'>{voce[:30]}</div>
+                <div style='font-size:0.8rem;color:#374151'>
+                    Effettivo: <b>{fmt_eur(eff)}</b><br>
+                    Budget: {fmt_eur(bud)}<br>
+                    <span style='color:{color};font-weight:700'>{pct:+.1f}%</span>
+                </div>
+            </div>""", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:#F1F5F9;margin:16px 0'>", unsafe_allow_html=True)
 
 
 def _empty_state():
     st.markdown("## 📊 Dashboard")
-    st.info("👋 Seleziona un cliente dalla sidebar e carica i dati nel Workspace.")
-
-
-def _placeholder_kpi():
-    cols = st.columns(4)
-    for i, (label, color) in enumerate([
-        ("Ricavi Netti", "#1A3A7A"), ("EBITDA", "#059669"),
-        ("EBIT", "#7C3AED"), ("Risultato Netto", "#DC2626")
-    ]):
-        with cols[i]:
-            st.markdown(f"""
-            <div class="kpi-card" style="border-left-color:{color}; opacity:0.3">
-                <div class="kpi-label">{label}</div>
-                <div class="kpi-value">— €</div>
-            </div>
-            """, unsafe_allow_html=True)
+    st.info("👋 Seleziona un cliente dalla sidebar e carica i dati nel Workspace per visualizzare la Dashboard.")
