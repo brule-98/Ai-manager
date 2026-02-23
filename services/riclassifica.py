@@ -1,152 +1,245 @@
-"""
-riclassifica.py — Motore di riclassificazione CE + KPI + Trend.
-Tutte le funzioni richieste dagli altri moduli sono qui.
-"""
+"""riclassifica.py — CE riclassificato con supporto completo subtotali/totali."""
 import pandas as pd
 import numpy as np
-from services.data_utils import to_numeric, find_column
+from services.data_utils import find_column, to_numeric
 
 
-# ─── HELPERS ─────────────────────────────────────────────────────────────────
-
-def get_label_map(df_ricl) -> dict:
-    """Restituisce {codice_voce: descrizione_voce} dallo schema di riclassifica."""
-    if df_ricl is None:
+def get_label_map(df_ricl):
+    if df_ricl is None or df_ricl.empty:
         return {}
-    col_cod  = find_column(df_ricl, ['Codice','codice','Voce','voce','ID','id','Codice Voce','CodiceVoce'])
-    col_desc = find_column(df_ricl, ['Descrizione','descrizione','Voce','voce','Nome','nome','Label','label'])
+    col_cod  = find_column(df_ricl, ['Codice','codice','ID','id','Voce','voce'])
+    col_desc = find_column(df_ricl, ['Descrizione','descrizione','Nome','nome','Label','label'])
     if not col_cod:
         return {}
     result = {}
     for _, row in df_ricl.iterrows():
         cod  = str(row[col_cod]).strip()
-        desc = str(row[col_desc]).strip() if col_desc and col_desc != col_cod else cod
-        if cod and cod not in ('nan','None',''):
-            result[cod] = desc
+        desc = str(row[col_desc]).strip() if (col_desc and col_desc != col_cod) else cod
+        if cod and cod.lower() not in ('nan', 'none', ''):
+            result[cod] = desc if desc.lower() not in ('nan', 'none', '') else cod
     return result
 
 
-def get_conto_label_map(df_piano) -> dict:
-    """Restituisce {codice_conto: descrizione_conto} dal piano dei conti."""
-    if df_piano is None:
+def get_conto_label_map(df_piano):
+    if df_piano is None or df_piano.empty:
         return {}
-    col_cod  = find_column(df_piano, ['Codice','codice','codice conto','Codice Conto','CODICE','Conto','conto'])
+    col_cod  = find_column(df_piano, ['Codice','codice','CodConto','Conto','conto','ID'])
     col_desc = find_column(df_piano, ['Descrizione','descrizione','Nome','nome','Conto','conto'])
     if not col_cod:
         return {}
     result = {}
     for _, row in df_piano.iterrows():
         cod  = str(row[col_cod]).strip()
-        desc = str(row[col_desc]).strip() if col_desc and col_desc != col_cod else cod
-        if cod and cod not in ('nan','None',''):
-            result[cod] = desc
+        desc = str(row[col_desc]).strip() if (col_desc and col_desc != col_cod) else cod
+        if cod and cod.lower() not in ('nan', 'none', ''):
+            result[cod] = desc if desc.lower() not in ('nan', 'none', '') else cod
     return result
 
 
 def applica_rettifiche(df_db, rettifiche, col_conto, col_saldo, col_data):
-    """Aggiunge le rettifiche attive al DataFrame contabile."""
     if not rettifiche:
         return df_db
     rows = []
     for r in rettifiche:
-        if not r.get('attiva', True):
-            continue
-        row = {c: None for c in df_db.columns}
-        row[col_conto] = r.get('conto', '')
-        row[col_saldo] = r.get('importo', 0)
+        row = {c: '' for c in df_db.columns}
+        row[col_conto] = str(r.get('conto', ''))
+        row[col_saldo] = str(r.get('importo', 0))
         mese = r.get('mese', '')
         if mese and col_data in df_db.columns:
-            # Converti YYYY-MM in 01/MM/YYYY
-            try:
-                parts = mese.split('-')
-                row[col_data] = f"01/{parts[1]}/{parts[0]}"
-            except Exception:
-                if col_data in df_db.columns:
-                    row[col_data] = r.get('data', '')
-        row['_rettifica'] = True
+            parts = mese.split('-')
+            row[col_data] = '01/{}/{}'.format(parts[1], parts[0]) if len(parts) == 2 else r.get('data', '')
         rows.append(row)
-    if not rows:
-        return df_db
-    return pd.concat([df_db, pd.DataFrame(rows)], ignore_index=True)
+    if rows:
+        df_db = pd.concat([df_db, pd.DataFrame(rows)], ignore_index=True)
+    return df_db
 
 
-# ─── MOTORE CE ────────────────────────────────────────────────────────────────
+def _parse_date_robust(series):
+    s = series.astype(str).str.strip()
+    result = pd.to_datetime(s, errors='coerce', dayfirst=True)
+    if result.notna().sum() > len(s) * 0.5:
+        return result
+    for fmt in ['%d/%m/%Y','%d-%m-%Y','%Y-%m-%d','%d/%m/%y','%d-%m-%y','%Y/%m/%d','%d.%m.%Y','%d.%m.%y','%m/%d/%Y']:
+        try:
+            c = pd.to_datetime(s, format=fmt, errors='coerce')
+            if c.notna().sum() > result.notna().sum():
+                result = c
+        except Exception:
+            pass
+    return result
+
+
+def _applica_schema_con_totali(pivot_contabili, schema_config, label_map):
+    """
+    Espande il pivot contabile con righe subtotale/totale/separatore.
+    Ritorna DataFrame con colonna _tipo aggiunta.
+    """
+    if not schema_config:
+        pivot_contabili['_tipo'] = 'contabile'
+        return pivot_contabili
+
+    mesi_cols = [c for c in pivot_contabili.columns if c != 'TOTALE']
+    all_cols  = mesi_cols + ['TOTALE']
+
+    voci_ordinate = sorted(schema_config.keys(), key=lambda v: schema_config[v].get('ordine', 999))
+
+    labels, data_rows, tipi = [], [], []
+
+    # accumulatori: subtotale si azzera ad ogni riga subtotale, totale mai
+    accum_sub = {c: 0.0 for c in all_cols}
+    accum_tot = {c: 0.0 for c in all_cols}
+
+    for cod in voci_ordinate:
+        cfg  = schema_config[cod]
+        tipo = cfg.get('tipo', 'contabile')
+        desc = label_map.get(cod, cod)
+
+        if tipo == 'separatore':
+            labels.append(' ')          # spazio come label per riga vuota
+            data_rows.append({c: np.nan for c in all_cols})
+            tipi.append('separatore')
+            continue
+
+        if tipo == 'contabile':
+            # Trova la voce nel pivot (per label o per codice)
+            target = desc if desc in pivot_contabili.index else (cod if cod in pivot_contabili.index else None)
+            if target:
+                row = pivot_contabili.loc[target].copy()
+                row_d = {c: float(row[c]) if c in row.index else 0.0 for c in all_cols}
+            else:
+                row_d = {c: 0.0 for c in all_cols}
+
+            # Applica segno
+            if cfg.get('segno', 1) == -1:
+                row_d = {c: -v for c, v in row_d.items()}
+
+            for c in all_cols:
+                accum_sub[c] += row_d.get(c, 0.0)
+                accum_tot[c] += row_d.get(c, 0.0)
+
+            labels.append(desc)
+            data_rows.append(row_d)
+            tipi.append('contabile')
+
+        elif tipo == 'subtotale':
+            sub_d = dict(accum_sub)
+            sub_d['TOTALE'] = sum(sub_d.get(c, 0.0) for c in mesi_cols)
+            labels.append(desc)
+            data_rows.append(sub_d)
+            tipi.append('subtotale')
+            # Reset accumulatore subtotale
+            accum_sub = {c: 0.0 for c in all_cols}
+
+        elif tipo == 'totale':
+            tot_d = dict(accum_tot)
+            tot_d['TOTALE'] = sum(tot_d.get(c, 0.0) for c in mesi_cols)
+            labels.append(desc)
+            data_rows.append(tot_d)
+            tipi.append('totale')
+            # Non resetta: il totale è cumulativo
+
+    if not labels:
+        pivot_contabili['_tipo'] = 'contabile'
+        return pivot_contabili
+
+    result = pd.DataFrame(data_rows, index=labels)
+    result.index.name = None
+    result['_tipo'] = tipi
+    return result
+
 
 def costruisci_ce_riclassificato(df_db, df_piano, df_ricl, mapping, schema_config, rettifiche=None):
     """
-    Costruisce Conto Economico riclassificato con drill-down per conto.
-
-    Returns:
-        pivot     — DataFrame (index=voce_label, columns=mesi + 'TOTALE')
-        dettaglio — dict {voce_label: DataFrame(index=conto_display, columns=mesi+'TOTALE')}
-        errore    — str | None
+    Costruisce CE riclassificato con subtotali/totali da schema_config.
+    Returns: (pivot_df, dettaglio_dict, errore_str)
+    pivot_df ha colonna _tipo: contabile / subtotale / totale / separatore
     """
-    col_data  = find_column(df_db, ['Data','data','DATA','DataDoc','data_registrazione','DataReg'])
-    col_saldo = find_column(df_db, ['Saldo','saldo','SALDO','Importo','importo','Valore','valore','ImportoMovimento','Dare','Avere'])
-    col_conto = find_column(df_db, ['Conto','conto','CONTO','Codice Conto','codice_conto','CodConto','CodiceConto'])
+    if df_db is None or df_db.empty:
+        return None, None, 'DB Contabile vuoto o non caricato.'
+    if not mapping:
+        return None, None, 'Nessuna mappatura configurata. Vai in Workspace → Mappatura Conti.'
 
-    if not all([col_data, col_saldo, col_conto]):
-        missing = [n for n, c in [('Data', col_data),('Saldo/Importo', col_saldo),('Conto', col_conto)] if not c]
-        return None, None, f"Colonne non trovate nel DB: {', '.join(missing)}"
+    col_data  = find_column(df_db, ['Data','data','DATA','DataDoc','DataRegistrazione',
+                                     'data_registrazione','DataReg','Competenza','Date'])
+    col_saldo = find_column(df_db, ['Saldo','saldo','SALDO','Importo','importo',
+                                     'Valore','valore','ImportoMovimento','Totale','Amount'])
+    col_conto = find_column(df_db, ['Conto','conto','CONTO','CodConto','CodiceConto',
+                                     'codice_conto','Mastro','mastro','Account'])
+
+    missing = [n for n, c in [('Data', col_data),('Saldo/Importo', col_saldo),('Conto', col_conto)] if not c]
+    if missing:
+        return None, None, (
+            'Colonne non trovate nel DB: {}.\nColonne presenti: {}\n'
+            'Rinomina in: Data, CodConto (o Conto), Importo (o Saldo).'
+        ).format(', '.join(missing), list(df_db.columns)[:12])
 
     db = df_db.copy()
     if rettifiche:
         db = applica_rettifiche(db, rettifiche, col_conto, col_saldo, col_data)
 
     db['_saldo_num'] = to_numeric(db[col_saldo])
-    db['_data_dt']   = pd.to_datetime(db[col_data], format='%d/%m/%Y', errors='coerce')
-    db['_mese']      = db['_data_dt'].dt.to_period('M').astype(str)
+    db['_data_dt']   = _parse_date_robust(db[col_data])
     db['_conto_str'] = db[col_conto].astype(str).str.strip()
 
-    label_map   = get_label_map(df_ricl)
-    conto_label = get_conto_label_map(df_piano)
+    db = db[db['_data_dt'].notna() & (db['_conto_str'] != '') & (db['_conto_str'] != 'nan')]
+    if db.empty:
+        sample = df_db[col_data].dropna().head(3).tolist()
+        return None, None, (
+            'Nessuna riga valida dopo parsing date. '
+            'Esempi date: {}. Formati supportati: GG/MM/AAAA, AAAA-MM-GG.'
+        ).format(sample)
 
-    # Mapping conto → voce riclassifica
+    db['_mese']      = db['_data_dt'].dt.to_period('M').astype(str)
+    label_map        = get_label_map(df_ricl)
+    conto_label      = get_conto_label_map(df_piano)
+
     db['_cod_voce']   = db['_conto_str'].map(mapping)
     db['_voce_label'] = db['_cod_voce'].map(label_map).fillna(db['_cod_voce'])
-    db_mapped = db[db['_voce_label'].notna() & db['_voce_label'].ne('None') & db['_voce_label'].ne('nan')].copy()
+
+    db_mapped = db[
+        db['_voce_label'].notna() &
+        ~db['_voce_label'].astype(str).isin(['nan','None','NaN',''])
+    ].copy()
 
     if db_mapped.empty:
-        return None, None, "Nessun conto mappato. Configura la mappatura nel Workspace."
+        conti_db  = set(db['_conto_str'].unique())
+        conti_map = set(mapping.keys())
+        return None, None, (
+            'Nessun conto del DB risulta mappato.\n'
+            'Conti DB (es.): {}\nConti mapping (es.): {}\n'
+            'Verifica che i codici corrispondano al Piano dei Conti.'
+        ).format(list(conti_db)[:5], list(conti_map)[:5])
 
     db_mapped['_desc_conto']    = db_mapped['_conto_str'].map(conto_label).fillna(db_mapped['_conto_str'])
     db_mapped['_conto_display'] = db_mapped['_conto_str'] + ' — ' + db_mapped['_desc_conto']
 
-    # ── Pivot aggregato per voce ──────────────────────────────────────────────
-    pivot = pd.pivot_table(
-        db_mapped, values='_saldo_num', index='_voce_label',
-        columns='_mese', aggfunc='sum', fill_value=0
+    # Pivot base: solo voci contabili (dai dati reali)
+    pivot_base = pd.pivot_table(
+        db_mapped, values='_saldo_num',
+        index='_voce_label', columns='_mese',
+        aggfunc='sum', fill_value=0
     )
     try:
-        pivot = pivot[sorted(pivot.columns)]
+        pivot_base = pivot_base[sorted(pivot_base.columns)]
     except Exception:
         pass
+    pivot_base['TOTALE'] = pivot_base.sum(axis=1)
 
-    # Applica segni e ordine da schema_config
-    if schema_config:
-        for cod, cfg in schema_config.items():
-            voce_desc = label_map.get(cod, cod)
-            target = voce_desc if voce_desc in pivot.index else (cod if cod in pivot.index else None)
-            if target and cfg.get('segno', 1) == -1:
-                pivot.loc[target] = pivot.loc[target] * -1
+    # Espandi con subtotali/totali dallo schema
+    pivot = _applica_schema_con_totali(pivot_base, schema_config, label_map)
 
-        ordine_cod  = sorted(schema_config.keys(), key=lambda v: schema_config[v].get('ordine', 999))
-        ordine_desc = [label_map.get(c, c) for c in ordine_cod]
-        validi = [v for v in ordine_desc if v in pivot.index]
-        resto  = [v for v in pivot.index if v not in validi]
-        pivot  = pivot.reindex(validi + resto)
-
-    pivot['TOTALE'] = pivot.sum(axis=1)
-
-    # ── Dettaglio per conto (drill-down) ─────────────────────────────────────
+    # Dettaglio drill-down (solo voci contabili)
     dettaglio = {}
     for voce in pivot.index:
+        if str(pivot.loc[voce, '_tipo']) != 'contabile':
+            continue
         df_v = db_mapped[db_mapped['_voce_label'] == voce]
         if df_v.empty:
             continue
         piv_c = pd.pivot_table(
-            df_v, values='_saldo_num', index='_conto_display',
-            columns='_mese', aggfunc='sum', fill_value=0
+            df_v, values='_saldo_num',
+            index='_conto_display', columns='_mese',
+            aggfunc='sum', fill_value=0
         )
         try:
             piv_c = piv_c[sorted(piv_c.columns)]
@@ -158,214 +251,121 @@ def costruisci_ce_riclassificato(df_db, df_piano, df_ricl, mapping, schema_confi
     return pivot, dettaglio, None
 
 
-# ─── KPI ─────────────────────────────────────────────────────────────────────
-
-def get_mesi_disponibili(pivot) -> list:
-    """Restituisce lista mesi ordinati (esclude 'TOTALE')."""
+def get_mesi_disponibili(pivot):
     if pivot is None:
         return []
-    return [c for c in pivot.columns if c != 'TOTALE']
+    return [c for c in pivot.columns if c not in ('TOTALE','_tipo')]
 
 
-def _find_voce_pivot(pivot, keywords: list):
-    """Cerca la prima voce nell'indice del pivot che contiene uno dei keyword."""
+def _find_voce_pivot(pivot, keywords):
     if pivot is None:
         return None
-    for kw in keywords:
-        for v in pivot.index:
-            if kw.lower() in str(v).lower():
-                return v
+    for idx in pivot.index:
+        s = str(idx).lower()
+        if any(str(k).lower() in s for k in keywords):
+            tipo = pivot.loc[idx, '_tipo'] if '_tipo' in pivot.columns else 'contabile'
+            if tipo in ('contabile', 'subtotale', 'totale'):
+                return idx
     return None
 
 
-def _sum_voce(pivot, voce, cols) -> float:
-    """Somma i valori di una voce sui mesi selezionati."""
+def _sum_voce(pivot, voce, cols):
     if voce is None or voce not in pivot.index:
         return 0.0
-    return float(sum(pivot.loc[voce, c] for c in cols if c in pivot.columns))
+    valid = [c for c in cols if c in pivot.columns]
+    return float(pivot.loc[voce, valid].sum()) if valid else 0.0
 
 
-def calcola_kpi_finanziari(pivot, mesi_sel: list) -> dict:
-    """
-    Calcola KPI finanziari principali dal pivot CE per i mesi selezionati.
-    Usa ricerca semantica per trovare le voci rilevanti.
-
-    Returns: dict con ricavi, ebitda, ebit, utile_netto, margini...
-    """
-    if pivot is None or pivot.empty:
+def calcola_kpi_finanziari(pivot, mesi_sel):
+    if pivot is None or not mesi_sel:
         return {}
-
-    cols = [c for c in mesi_sel if c in pivot.columns]
-    if not cols:
-        # Fallback: tutti i mesi disponibili
-        cols = [c for c in pivot.columns if c != 'TOTALE']
+    cols = [c for c in mesi_sel if c in pivot.columns and c not in ('TOTALE','_tipo')]
     if not cols:
         return {}
 
-    def get(kw_list):
-        v = _find_voce_pivot(pivot, kw_list)
-        return _sum_voce(pivot, v, cols)
-
-    ricavi          = get(['ricav','fattur','vendite','Revenue','Turnover'])
-    costo_venduto   = get(['costo del venduto','acquisti','materie prime','merci','costi diretti'])
-    ebitda          = get(['ebitda','mol','margine operativo lordo'])
-    ebit            = get(['ebit','reddito operativo','risultato operativo'])
-    utile_netto     = get(['utile netto','risultato netto','utile esercizio','reddito netto'])
-    costi_personale = get(['personale','lavoro','stipendi','salari','collaboratori'])
-    ammortamenti    = get(['ammortamento','ammortamenti','svalutazione'])
-    oneri_fin       = get(['oneri finanziari','interessi passivi','interessi'])
-
-    # Gross margin (se disponibile)
-    gross_profit = ricavi - costo_venduto if costo_venduto else None
-
-    # Calcola EBITDA da EBIT + ammortamenti se non trovato direttamente
-    if ebitda == 0 and ebit != 0 and ammortamenti != 0:
-        ebitda = ebit + abs(ammortamenti)
-
+    def get(kw):
+        return _sum_voce(pivot, _find_voce_pivot(pivot, kw), cols)
     def margin(num, den):
-        if den and abs(den) > 0:
-            return round(num / den * 100, 2)
-        return None
+        return round(num / den * 100, 2) if den and abs(float(den)) > 0.01 else 0.0
 
-    n_mesi = len(cols)
-
-    kpi = {
-        # Valori assoluti
-        'ricavi':           ricavi,
-        'ebitda':           ebitda,
-        'ebit':             ebit,
-        'utile_netto':      utile_netto,
-        'costi_personale':  costi_personale,
-        'ammortamenti':     ammortamenti,
-        'oneri_finanziari': oneri_fin,
-
-        # Margini %
-        'ebitda_margin':    margin(ebitda, ricavi),
-        'ebit_margin':      margin(ebit, ricavi),
-        'net_margin':       margin(utile_netto, ricavi),
-        'gross_margin':     margin(gross_profit, ricavi) if gross_profit is not None else None,
-        'cost_labor_pct':   margin(costi_personale, ricavi),
-
-        # Derived
-        'ricavi_mensili_avg': round(ricavi / n_mesi, 0) if n_mesi > 0 else 0,
-        'ebitda_mensile_avg': round(ebitda / n_mesi, 0) if n_mesi > 0 else 0,
-        'n_mesi':             n_mesi,
-
-        # Meta
-        '_voci': {
-            'ricavi':          _find_voce_pivot(pivot, ['ricav','fattur','vendite']),
-            'ebitda':          _find_voce_pivot(pivot, ['ebitda','mol']),
-            'ebit':            _find_voce_pivot(pivot, ['ebit','reddito operativo']),
-            'utile_netto':     _find_voce_pivot(pivot, ['utile netto','risultato netto']),
-        }
-    }
-    return kpi
-
-
-def calcola_trend(pivot, voce: str, n_mesi: int = 6) -> object:
-    """
-    Calcola statistiche di trend per una voce specifica.
-
-    Returns:
-        dict con media, std, cv (coeff. variazione), mom (MoM%), yoy (YoY%), vals
-    """
-    if pivot is None or voce not in pivot.index:
-        return None
-
-    all_mesi = [c for c in pivot.columns if c != 'TOTALE']
-    mesi_an  = all_mesi[-n_mesi:]
-    vals     = [float(pivot.loc[voce, m]) for m in mesi_an if m in pivot.columns]
-
-    if len(vals) < 2:
-        return None
-
-    media = float(np.mean(vals))
-    std   = float(np.std(vals))
-    cv    = float(std / abs(media) * 100) if media != 0 else 0.0
-    mom   = float((vals[-1] - vals[-2]) / abs(vals[-2]) * 100) if vals[-2] != 0 else 0.0
-
-    yoy = None
-    if len(all_mesi) >= 13:
-        all_vals = [float(pivot.loc[voce, m]) for m in all_mesi if m in pivot.columns]
-        if len(all_vals) >= 13 and all_vals[-13] != 0:
-            yoy = float((all_vals[-1] - all_vals[-13]) / abs(all_vals[-13]) * 100)
-
-    # Trend direction: cresita/calo per ultimi 3 mesi
-    if len(vals) >= 3:
-        last3 = vals[-3:]
-        if all(last3[i] >= last3[i-1] for i in range(1, 3)):
-            direction = 'up'
-        elif all(last3[i] <= last3[i-1] for i in range(1, 3)):
-            direction = 'down'
-        else:
-            direction = 'flat'
-    else:
-        direction = 'flat'
+    ricavi      = get(['ricav','fattur','vendite','revenue'])
+    ebitda      = get(['ebitda','mol','margine operativo lordo'])
+    ebit        = get(['ebit','reddito operativo','risultato operativo'])
+    utile_netto = get(['utile netto','risultato netto','utile d','risultato esercizio'])
+    personale   = get(['personale','lavoro','salari','stipendi'])
+    acquisti    = get(['acquisti','materie prime','merci'])
 
     return {
-        'media':     media,
-        'std':       std,
-        'cv':        cv,
-        'mom':       mom,
-        'yoy':       yoy,
-        'vals':      vals,
-        'mesi':      mesi_an,
-        'direction': direction,
-        'ultimo':    vals[-1] if vals else 0,
+        'ricavi': ricavi, 'ebitda': ebitda, 'ebit': ebit,
+        'utile_netto': utile_netto, 'personale': personale, 'acquisti': acquisti,
+        'ebitda_margin':  margin(ebitda, ricavi),
+        'ebit_margin':    margin(ebit,   ricavi),
+        'net_margin':     margin(utile_netto, ricavi),
+        'cost_labor_pct': margin(abs(personale), ricavi),
+        'n_mesi': len(cols), 'mesi': cols,
     }
 
 
-def calcola_ebitda_bridge(pivot, mesi_att: list, mesi_prec: list) -> dict:
-    """
-    Calcola EBITDA Bridge tra due periodi.
-    Returns: dict con componenti del bridge.
-    """
+def calcola_trend(pivot, voce, n_mesi=6):
+    if pivot is None or voce not in pivot.index:
+        return None
+    mesi_ord = sorted([c for c in pivot.columns if c not in ('TOTALE','_tipo')])
+    if len(mesi_ord) < 2:
+        return None
+    mesi_used = mesi_ord[-n_mesi:] if len(mesi_ord) >= n_mesi else mesi_ord
+    vals = [float(pivot.loc[voce, m]) for m in mesi_used]
+    if len(vals) < 2:
+        return None
+    media  = float(np.mean(vals))
+    std    = float(np.std(vals))
+    ultimo = vals[-1]
+    prec   = vals[-2]
+    mom    = ((ultimo - prec) / abs(prec) * 100) if prec != 0 else 0.0
+    last3  = vals[-3:] if len(vals) >= 3 else vals
+    direction = ('up'   if all(last3[i] < last3[i+1] for i in range(len(last3)-1)) else
+                 'down' if all(last3[i] > last3[i+1] for i in range(len(last3)-1)) else 'flat')
+    return {'vals': vals, 'mesi': mesi_used, 'media': media, 'std': std,
+            'cv': abs(std/media*100) if media != 0 else 0.0,
+            'mom': mom, 'yoy': 0.0, 'direction': direction, 'ultimo': ultimo}
+
+
+def calcola_ebitda_bridge(pivot, mesi_att, mesi_prec):
     if pivot is None:
         return {}
-
     def get_period(mesi):
-        cols = [c for c in mesi if c in pivot.columns]
-        result = {}
-        for voce in pivot.index:
-            result[voce] = sum(float(pivot.loc[voce, c]) for c in cols if c in pivot.columns)
-        return result
-
+        cols = [c for c in mesi if c in pivot.columns and c not in ('TOTALE','_tipo')]
+        def s(kw): return _sum_voce(pivot, _find_voce_pivot(pivot, kw), cols)
+        return {'ricavi': s(['ricav','fattur']), 'personale': s(['personale','lavoro']),
+                'acquisti': s(['acquisti','materie']), 'ebitda': s(['ebitda','mol'])}
     att  = get_period(mesi_att)
     prec = get_period(mesi_prec)
-
-    bridge = {}
-    for voce in pivot.index:
-        v_att  = att.get(voce, 0)
-        v_prec = prec.get(voce, 0)
-        bridge[voce] = {
-            'attuale':    v_att,
-            'precedente': v_prec,
-            'delta':      v_att - v_prec,
-            'delta_pct':  ((v_att - v_prec) / abs(v_prec) * 100) if v_prec != 0 else None
-        }
-
-    return bridge
+    d_ric = att['ricavi']    - prec['ricavi']
+    d_per = -(att['personale'] - prec['personale'])
+    d_acq = -(att['acquisti']  - prec['acquisti'])
+    d_alt = (att['ebitda'] - prec['ebitda']) - d_ric - d_per - d_acq
+    return {'ebitda_prec': prec['ebitda'], 'ebitda_att': att['ebitda'],
+            'delta_ricavi': d_ric, 'delta_personale': d_per,
+            'delta_acquisti': d_acq, 'delta_altri': d_alt}
 
 
-def calcola_statistiche_mensili(pivot) -> dict:
-    """
-    Calcola statistiche mensili per tutte le voci: media, std, min, max, trend.
-    """
+def calcola_statistiche_mensili(pivot):
     if pivot is None:
         return {}
-    mesi = [c for c in pivot.columns if c != 'TOTALE']
+    mesi = [c for c in pivot.columns if c not in ('TOTALE','_tipo')]
     result = {}
     for voce in pivot.index:
+        tipo = pivot.loc[voce, '_tipo'] if '_tipo' in pivot.columns else 'contabile'
+        if tipo == 'separatore':
+            continue
         vals = [float(pivot.loc[voce, m]) for m in mesi if m in pivot.columns]
         if not vals:
             continue
+        media = float(np.mean(vals))
+        std   = float(np.std(vals))
         result[voce] = {
-            'media': float(np.mean(vals)),
-            'std':   float(np.std(vals)),
-            'min':   float(np.min(vals)),
-            'max':   float(np.max(vals)),
-            'cv':    float(np.std(vals) / abs(np.mean(vals)) * 100) if np.mean(vals) != 0 else 0,
-            'vals':  vals,
-            'mesi':  mesi,
+            'media': media, 'std': std,
+            'min': float(min(vals)), 'max': float(max(vals)),
+            'cv': abs(std/media*100) if media != 0 else 0.0,
+            'vals': vals, 'mesi': mesi,
         }
     return result
