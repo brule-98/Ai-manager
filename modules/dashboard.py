@@ -14,14 +14,12 @@ from services.riclassifica import costruisci_ce_riclassificato, get_mesi_disponi
 PALETTE = ['#1A3A7A','#10B981','#C9A84C','#EF4444','#8B5CF6','#F59E0B','#06B6D4','#EC4899','#14B8A6','#6366F1']
 
 PLOTLY_BASE = dict(
-    plot_bgcolor='white', paper_bgcolor='white',
-    font=dict(family='DM Sans, Inter, -apple-system, sans-serif', color='#374151', size=11),
-    legend=dict(bgcolor='rgba(255,255,255,0)', bordercolor='#E2E8F0',
+    plot_bgcolor='#0A1628', paper_bgcolor='#0A1628',
+    font=dict(family='Inter, -apple-system, sans-serif', color='#94A3B8', size=11),
+    legend=dict(bgcolor='rgba(0,0,0,0)', bordercolor='rgba(255,255,255,0.08)',
                 orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0,
-                font=dict(size=10)),
-    margin=dict(l=0, r=0, t=50, b=0),
-    hoverlabel=dict(bgcolor='white', bordercolor='#1A3A7A', font_color='#1A3A7A',
-                    font_family='DM Sans, sans-serif'),
+                font=dict(size=10, color='#94A3B8')),
+    hoverlabel=dict(bgcolor='#0F1923', bordercolor='#C9A84C', font_color='#E2E8F0'),
 )
 
 
@@ -181,13 +179,13 @@ def _render_kpi_cards(kpi, kpi_conf, anno_conf):
     st.markdown(f"""
     <style>
     .dash-kpi-row {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }}
-    .dash-kpi-card {{ background:white; border-radius:12px; padding:16px 18px;
-                      box-shadow:0 1px 8px rgba(0,0,0,.07); border-left:4px solid #1A3A7A;
-                      transition:transform .15s, box-shadow .15s; }}
-    .dash-kpi-card:hover {{ transform:translateY(-2px); box-shadow:0 4px 16px rgba(0,0,0,.1); }}
-    .dkc-label {{ font-size:0.7rem; text-transform:uppercase; letter-spacing:1px; color:#8896AB; font-weight:700; margin-bottom:6px; }}
-    .dkc-value {{ font-size:1.45rem; font-weight:700; color:#0F2044; letter-spacing:-0.5px; margin-bottom:4px; }}
-    .dkc-delta {{ font-size:0.78rem; font-weight:600; }}
+    .dash-kpi-card {{ background:#0D1625; border-radius:12px; padding:16px 18px;
+                      border:1px solid rgba(255,255,255,0.07); border-left:4px solid #1A3A7A;
+                      transition:transform .15s; }}
+    .dash-kpi-card:hover {{ transform:translateY(-2px); border-color:rgba(201,168,76,0.2); }}
+    .dkc-label {{ font-size:0.68rem; text-transform:uppercase; letter-spacing:1.2px; color:#475569; font-weight:700; margin-bottom:6px; }}
+    .dkc-value {{ font-size:1.4rem; font-weight:800; color:#F1F5F9; letter-spacing:-0.5px; margin-bottom:4px; }}
+    .dkc-delta {{ font-size:0.76rem; font-weight:600; }}
     </style>
     <div class='dash-kpi-row'>{cards_html}</div>""", unsafe_allow_html=True)
 
@@ -199,8 +197,8 @@ def _render_kpi_cards(kpi, kpi_conf, anno_conf):
 def _render_tabella_ce(ca, pf, dettaglio, cols_filtro, pf_conf, anno_conf, mostra_bud, budget, mesi_filtro, mapping=None, label_map=None):
     st.markdown("### 📋 Conto Economico Riclassificato")
     st.markdown("""
-    <div style='font-size:0.79rem;color:#6B7280;margin-bottom:16px;padding:10px 14px;
-                background:#F8FAFC;border-radius:6px;border-left:3px solid #CBD5E8'>
+    <div style='font-size:0.79rem;color:#64748B;margin-bottom:16px;padding:10px 14px;
+                background:rgba(255,255,255,0.03);border-radius:6px;border-left:3px solid rgba(201,168,76,0.3)'>
     💡 Clicca su <b>▶ una voce</b> per espandere il dettaglio dei singoli conti contabili.
     I valori mensili sono visibili nella riga di riepilogo.
     </div>""", unsafe_allow_html=True)
@@ -336,10 +334,10 @@ def _render_grafici(pivot, mesi, kpi):
 
     fig.update_layout(
         **PLOTLY_BASE, height=380,
-        xaxis=dict(showgrid=False, tickangle=-30, title='', color='#6B7280',
-                   tickfont=dict(size=10), linecolor='#E2E8F0'),
-        yaxis=dict(showgrid=True, gridcolor='#F8FAFC', tickformat=',.0f', ticksuffix=' €',
-                   color='#6B7280', tickfont=dict(size=10), title=''),
+        xaxis=dict(showgrid=False, tickangle=-30, title='', color='#64748B',
+                   tickfont=dict(size=10), linecolor='rgba(255,255,255,0.08)'),
+        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.06)', tickformat=',.0f', ticksuffix=' €',
+                   color='#64748B', tickfont=dict(size=10), title=''),
         bargap=0.2,
     )
     fig.update_traces(hovertemplate='<b>%{x}</b><br>%{y:,.0f} €<extra>%{fullData.name}</extra>')
@@ -362,11 +360,11 @@ def _render_grafici(pivot, mesi, kpi):
             ))
             fig_wf.update_layout(
                 **PLOTLY_BASE, height=310,
-                xaxis=dict(showgrid=False, tickangle=-30, color='#6B7280', tickfont=dict(size=9)),
-                yaxis=dict(showgrid=True, gridcolor='#F8FAFC', tickformat=',.0f', ticksuffix=' €',
-                           color='#6B7280', tickfont=dict(size=9)),
-                margin=dict(l=0, r=0, t=20, b=0),
+                xaxis=dict(showgrid=False, tickangle=-30, color='#64748B', tickfont=dict(size=9)),
+                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.06)', tickformat=',.0f', ticksuffix=' €',
+                           color='#64748B', tickfont=dict(size=9)),
             )
+            fig_wf.update_layout(margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig_wf, use_container_width=True)
 
     with col_b:
@@ -388,8 +386,8 @@ def _render_grafici(pivot, mesi, kpi):
                 fig_pie.update_layout(
                     **PLOTLY_BASE, height=310,
                     showlegend=False,
-                    margin=dict(l=0, r=0, t=20, b=0),
                 )
+                fig_pie.update_layout(margin=dict(l=0, r=0, t=20, b=0))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
     # ── Heatmap ──────────────────────────────────────────────────────────────
@@ -402,20 +400,20 @@ def _render_grafici(pivot, mesi, kpi):
             labels=dict(x="Mese", y="Voce", color="Intensità normalizzata"),
             x=list(hm_norm.columns),
             y=[str(v)[:30] for v in hm_norm.index],
-            color_continuous_scale=[[0,'#FECACA'],[0.5,'#EEF2FF'],[1,'#1A3A7A']],
+            color_continuous_scale=[[0,'#1A3A7A'],[0.5,'#0F2044'],[1,'#C9A84C']],
             aspect='auto',
             text_auto=False,
         )
         fig_hm.update_traces(
             text=[[f"{v:,.0f}€" for v in row] for row in hm.values],
             texttemplate="%{text}",
-            textfont=dict(size=9, color='#374151'),
+            textfont=dict(size=9, color='#E2E8F0'),
         )
         fig_hm.update_layout(
-            plot_bgcolor='white', paper_bgcolor='white',
+            plot_bgcolor='#0A1628', paper_bgcolor='#0A1628',
             margin=dict(l=0, r=0, t=20, b=10),
-            xaxis=dict(tickangle=-30, tickfont=dict(size=9), color='#6B7280'),
-            yaxis=dict(tickfont=dict(size=9), color='#6B7280'),
+            xaxis=dict(tickangle=-30, tickfont=dict(size=9), color='#64748B'),
+            yaxis=dict(tickfont=dict(size=9), color='#64748B'),
             height=max(220, 45*len(voci_sel)+60),
             font=dict(family='DM Sans, sans-serif', size=10),
             coloraxis_showscale=False,
@@ -445,11 +443,11 @@ def _render_grafici(pivot, mesi, kpi):
         fig_marg.update_traces(line=dict(width=2.5), marker=dict(size=7, line=dict(width=2, color='white')))
         fig_marg.update_layout(
             **PLOTLY_BASE, height=280,
-            yaxis=dict(ticksuffix='%', showgrid=True, gridcolor='#F8FAFC', color='#6B7280',
-                       title='', tickfont=dict(size=10), zerolinecolor='#CBD5E1'),
-            xaxis=dict(showgrid=False, tickangle=-30, color='#6B7280', title='', tickfont=dict(size=10)),
-            margin=dict(l=0, r=0, t=10, b=0),
+            yaxis=dict(ticksuffix='%', showgrid=True, gridcolor='rgba(255,255,255,0.06)', color='#64748B',
+                       title='', tickfont=dict(size=10), zerolinecolor='rgba(255,255,255,0.15)'),
+            xaxis=dict(showgrid=False, tickangle=-30, color='#64748B', title='', tickfont=dict(size=10)),
         )
+        fig_marg.update_layout(margin=dict(l=0, r=0, t=10, b=0))
         fig_marg.update_traces(hovertemplate='<b>%{x}</b><br>%{y:.1f}%<extra>%{fullData.name}</extra>')
         st.plotly_chart(fig_marg, use_container_width=True)
 
@@ -480,15 +478,15 @@ def _render_budget_alerts(pf, budget, cols_filtro):
     for i, (voce, eff, bud, pct) in enumerate(alert_list[:6]):
         with cols[i % n_cols]:
             color = '#DC2626' if pct < 0 else '#D97706'
-            bg    = '#FEF2F2' if pct < 0 else '#FFFBEB'
+            bg    = 'rgba(239,68,68,0.1)' if pct < 0 else 'rgba(217,119,6,0.1)'
             sym   = '▼' if pct < 0 else '▲'
             st.markdown(f"""
             <div style='background:{bg};border-left:4px solid {color};border-radius:8px;
                         padding:12px 14px;margin-bottom:10px'>
                 <div style='font-size:0.7rem;font-weight:700;color:{color};text-transform:uppercase;
                             letter-spacing:.7px'>{sym} Alert Budget</div>
-                <div style='font-weight:600;font-size:0.86rem;margin:4px 0;color:#1F2937'>{voce[:30]}</div>
-                <div style='font-size:0.8rem;color:#374151'>
+                <div style='font-weight:600;font-size:0.86rem;margin:4px 0;color:#E2E8F0'>{voce[:30]}</div>
+                <div style='font-size:0.8rem;color:#94A3B8'>
                     Effettivo: <b>{fmt_eur(eff)}</b><br>
                     Budget: {fmt_eur(bud)}<br>
                     <span style='color:{color};font-weight:700'>{pct:+.1f}%</span>
