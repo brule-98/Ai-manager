@@ -100,11 +100,18 @@ def render_cfo_agent():
         )
 
     if errore:
-        st.error(f"❌ {errore}"); return
+        st.error("❌ " + errore)
+        st.info("💡 Dopo aver cambiato la configurazione ricarica la pagina o ri-seleziona il cliente.")
+        return
+
+    if pivot is None or pivot.empty:
+        st.warning("⚠️ Nessun dato disponibile. Verifica mappatura e dati caricati.")
+        return
 
     mesi = get_mesi_disponibili(pivot)
     if not mesi:
-        st.warning("⚠️ Nessun dato mensile trovato nel DB contabile."); return
+        st.warning("⚠️ Nessun dato mensile trovato nel DB contabile.")
+        return
 
     # ── AUTO KPI DASHBOARD ────────────────────────────────────────────────────
     _render_auto_kpi_dashboard(pivot, mesi, budget, ca)
@@ -201,32 +208,45 @@ def _render_auto_kpi_dashboard(pivot, mesi, budget, ca):
 
     # ── KPI CARDS ─────────────────────────────────────────────────────────────
     def kpi_card(label, value, unit, color, icon, conf_val=None, bud_val=None, benchmark=None):
+        card_style = (
+            "background:#0F1923;border:1px solid rgba(255,255,255,0.07);"
+            "border-top:3px solid " + color + ";"
+            "border-radius:12px;padding:16px 18px;"
+        )
+        lbl_style  = "font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:#475569;font-weight:700;margin-bottom:8px;"
+        val_style  = "font-size:1.4rem;font-weight:800;color:#F1F5F9;letter-spacing:-0.5px;line-height:1;margin-bottom:4px;"
+        sub_style  = "font-size:11px;font-weight:600;margin-top:4px;"
+
         if value is None:
-            return f"""<div class='cfo-kpi-card' style='border-top-color:{color}'>
-                <div class='cfo-kpi-label'>{icon} {label}</div>
-                <div class='cfo-kpi-value' style='color:{C["muted"]}'>—</div>
-            </div>"""
+            return (
+                "<div style='" + card_style + "'>"
+                "<div style='" + lbl_style + "'>" + icon + " " + label + "</div>"
+                "<div style='" + val_style + "color:#475569'>—</div>"
+                "</div>"
+            )
 
         v_fmt = f"{value:.1f}{unit}" if unit == '%' else fmt_k(value) + " " + unit
-        delta_html = ""
+
+        extras = ""
         if conf_val is not None and conf_val != 0:
             delta_pct = (value - conf_val) / abs(conf_val) * 100
             clr = C['green'] if delta_pct >= 0 else C['red']
             sym = "▲" if delta_pct >= 0 else "▼"
-            delta_html = f"<div class='cfo-kpi-delta' style='color:{clr}'>{sym} {abs(delta_pct):.1f}% vs {anno_conf}</div>"
-        bud_html = ""
+            extras += f"<div style='{sub_style}color:{clr}'>{sym} {abs(delta_pct):.1f}% vs {anno_conf}</div>"
         if bud_val and bud_val != 0 and unit != '%':
             scost = value - bud_val
-            clr = C['green'] if scost >= 0 else C['red']
-            sym = "+" if scost >= 0 else ""
-            bud_html = f"<div class='cfo-kpi-bud' style='color:{clr}'>vs Budget: {sym}{fmt_k(scost)}€</div>"
-        bench_html = f"<div class='cfo-kpi-bench'>Benchmark: {benchmark}</div>" if benchmark else ""
+            clr   = C['green'] if scost >= 0 else C['red']
+            extras += f"<div style='{sub_style}color:{clr}'>vs Budget: {'+' if scost>=0 else ''}{fmt_k(scost)}€</div>"
+        if benchmark:
+            extras += f"<div style='font-size:10px;color:#334155;margin-top:4px'>Bench: {benchmark}</div>"
 
-        return f"""<div class='cfo-kpi-card' style='border-top-color:{color}'>
-            <div class='cfo-kpi-label'>{icon} {label}</div>
-            <div class='cfo-kpi-value'>{v_fmt}</div>
-            {delta_html}{bud_html}{bench_html}
-        </div>"""
+        return (
+            "<div style='" + card_style + "'>"
+            "<div style='" + lbl_style + "'>" + icon + " " + label + "</div>"
+            "<div style='" + val_style + "'>" + v_fmt + "</div>"
+            + extras +
+            "</div>"
+        )
 
     kpi_defs = [
         ('Ricavi Netti',    kpi.get('ricavi'),        '€',  C['blue'],  '📈', kpi_conf.get('ricavi'),        None,                      None),
@@ -241,8 +261,10 @@ def _render_auto_kpi_dashboard(pivot, mesi, budget, ca):
     rows = [kpi_defs[i:i+col_per_row] for i in range(0, len(kpi_defs), col_per_row)]
 
     for row in rows:
-        cards_html = "".join(kpi_card(*d) for d in row)
-        st.markdown(f"<div class='cfo-kpi-row'>{cards_html}</div>", unsafe_allow_html=True)
+        cols = st.columns(len(row))
+        for ci, (d, col) in enumerate(zip(row, cols)):
+            with col:
+                st.markdown(kpi_card(*d), unsafe_allow_html=True)
 
     # ── MINI SPARK CHARTS ─────────────────────────────────────────────────────
     voci_spark = [v for v in [
