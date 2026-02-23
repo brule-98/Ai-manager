@@ -1,4 +1,4 @@
-"""riclassifica.py — CE riclassificato con supporto completo subtotali/totali."""
+"""riclassifica.py — CE riclassificato con subtotali/totali e voci_include configurabili."""
 import pandas as pd
 import numpy as np
 from services.data_utils import find_column, to_numeric
@@ -59,7 +59,8 @@ def _parse_date_robust(series):
     result = pd.to_datetime(s, errors='coerce', dayfirst=True)
     if result.notna().sum() > len(s) * 0.5:
         return result
-    for fmt in ['%d/%m/%Y','%d-%m-%Y','%Y-%m-%d','%d/%m/%y','%d-%m-%y','%Y/%m/%d','%d.%m.%Y','%d.%m.%y','%m/%d/%Y']:
+    for fmt in ['%d/%m/%Y','%d-%m-%Y','%Y-%m-%d','%d/%m/%y','%d-%m-%y',
+                '%Y/%m/%d','%d.%m.%Y','%d.%m.%y','%m/%d/%Y','%Y%m%d']:
         try:
             c = pd.to_datetime(s, format=fmt, errors='coerce')
             if c.notna().sum() > result.notna().sum():
@@ -69,10 +70,31 @@ def _parse_date_robust(series):
     return result
 
 
+def _safe_scalar(val):
+    """Estrae scalare float sicuro da Series/NaN/any."""
+    if isinstance(val, pd.Series):
+        val = val.iloc[0] if len(val) > 0 else 0.0
+    try:
+        f = float(val)
+        return 0.0 if (f != f) else f  # NaN check
+    except Exception:
+        return 0.0
+
+
+def _safe_str(val):
+    if isinstance(val, pd.Series):
+        val = val.iloc[0] if len(val) > 0 else ''
+    try:
+        return str(val)
+    except Exception:
+        return ''
+
+
 def _applica_schema_con_totali(pivot_contabili, schema_config, label_map):
     """
-    Espande il pivot contabile con righe subtotale/totale/separatore.
-    Ritorna DataFrame con colonna _tipo aggiunta.
+    Espande pivot con righe subtotale/totale/separatore.
+    voci_include: lista codici specifici da sommare (vuoto = tutti i precedenti).
+    Separatori hanno label con zero-width spaces per evitare duplicati.
     """
     if not schema_config:
         pivot_contabili['_tipo'] = 'contabile'
@@ -84,59 +106,62 @@ def _applica_schema_con_totali(pivot_contabili, schema_config, label_map):
     voci_ordinate = sorted(schema_config.keys(), key=lambda v: schema_config[v].get('ordine', 999))
 
     labels, data_rows, tipi = [], [], []
-
-    # accumulatori: subtotale si azzera ad ogni riga subtotale, totale mai
+    _sep_counter = [0]
     accum_sub = {c: 0.0 for c in all_cols}
     accum_tot = {c: 0.0 for c in all_cols}
+    voce_vals = {}  # {cod: {col: val}} per voci_include
 
     for cod in voci_ordinate:
         cfg  = schema_config[cod]
         tipo = cfg.get('tipo', 'contabile')
-        desc = label_map.get(cod, cod)
+        desc = cfg.get('descrizione_override', label_map.get(cod, cod))
 
         if tipo == 'separatore':
-            labels.append(' ')          # spazio come label per riga vuota
+            _sep_counter[0] += 1
+            labels.append('\u200b' * _sep_counter[0])
             data_rows.append({c: np.nan for c in all_cols})
             tipi.append('separatore')
             continue
 
         if tipo == 'contabile':
-            # Trova la voce nel pivot (per label o per codice)
             target = desc if desc in pivot_contabili.index else (cod if cod in pivot_contabili.index else None)
-            if target:
-                row = pivot_contabili.loc[target].copy()
-                row_d = {c: float(row[c]) if c in row.index else 0.0 for c in all_cols}
+            if target is not None:
+                row = pivot_contabili.loc[target]
+                if isinstance(row, pd.DataFrame):
+                    row = row.iloc[0]
+                row_d = {c: _safe_scalar(row[c]) if c in row.index else 0.0 for c in all_cols}
             else:
                 row_d = {c: 0.0 for c in all_cols}
 
-            # Applica segno
             if cfg.get('segno', 1) == -1:
                 row_d = {c: -v for c, v in row_d.items()}
 
             for c in all_cols:
                 accum_sub[c] += row_d.get(c, 0.0)
                 accum_tot[c] += row_d.get(c, 0.0)
+            voce_vals[cod] = row_d
 
             labels.append(desc)
             data_rows.append(row_d)
             tipi.append('contabile')
 
-        elif tipo == 'subtotale':
-            sub_d = dict(accum_sub)
-            sub_d['TOTALE'] = sum(sub_d.get(c, 0.0) for c in mesi_cols)
+        elif tipo in ('subtotale', 'totale'):
+            voci_include = cfg.get('voci_include', [])
+            if voci_include:
+                sub_d = {c: sum(voce_vals.get(vc, {}).get(c, 0.0) for vc in voci_include) for c in all_cols}
+                sub_d['TOTALE'] = sum(sub_d.get(c, 0.0) for c in mesi_cols)
+            elif tipo == 'subtotale':
+                sub_d = dict(accum_sub)
+                sub_d['TOTALE'] = sum(sub_d.get(c, 0.0) for c in mesi_cols)
+            else:
+                sub_d = dict(accum_tot)
+                sub_d['TOTALE'] = sum(sub_d.get(c, 0.0) for c in mesi_cols)
+
             labels.append(desc)
             data_rows.append(sub_d)
-            tipi.append('subtotale')
-            # Reset accumulatore subtotale
-            accum_sub = {c: 0.0 for c in all_cols}
-
-        elif tipo == 'totale':
-            tot_d = dict(accum_tot)
-            tot_d['TOTALE'] = sum(tot_d.get(c, 0.0) for c in mesi_cols)
-            labels.append(desc)
-            data_rows.append(tot_d)
-            tipi.append('totale')
-            # Non resetta: il totale è cumulativo
+            tipi.append(tipo)
+            if tipo == 'subtotale':
+                accum_sub = {c: 0.0 for c in all_cols}
 
     if not labels:
         pivot_contabili['_tipo'] = 'contabile'
@@ -149,11 +174,6 @@ def _applica_schema_con_totali(pivot_contabili, schema_config, label_map):
 
 
 def costruisci_ce_riclassificato(df_db, df_piano, df_ricl, mapping, schema_config, rettifiche=None):
-    """
-    Costruisce CE riclassificato con subtotali/totali da schema_config.
-    Returns: (pivot_df, dettaglio_dict, errore_str)
-    pivot_df ha colonna _tipo: contabile / subtotale / totale / separatore
-    """
     if df_db is None or df_db.empty:
         return None, None, 'DB Contabile vuoto o non caricato.'
     if not mapping:
@@ -202,18 +222,14 @@ def costruisci_ce_riclassificato(df_db, df_piano, df_ricl, mapping, schema_confi
     ].copy()
 
     if db_mapped.empty:
-        conti_db  = set(db['_conto_str'].unique())
-        conti_map = set(mapping.keys())
         return None, None, (
             'Nessun conto del DB risulta mappato.\n'
-            'Conti DB (es.): {}\nConti mapping (es.): {}\n'
-            'Verifica che i codici corrispondano al Piano dei Conti.'
-        ).format(list(conti_db)[:5], list(conti_map)[:5])
+            'Conti DB (es.): {}\nConti mapping (es.): {}'
+        ).format(list(db['_conto_str'].unique())[:5], list(mapping.keys())[:5])
 
     db_mapped['_desc_conto']    = db_mapped['_conto_str'].map(conto_label).fillna(db_mapped['_conto_str'])
     db_mapped['_conto_display'] = db_mapped['_conto_str'] + ' — ' + db_mapped['_desc_conto']
 
-    # Pivot base: solo voci contabili (dai dati reali)
     pivot_base = pd.pivot_table(
         db_mapped, values='_saldo_num',
         index='_voce_label', columns='_mese',
@@ -225,13 +241,12 @@ def costruisci_ce_riclassificato(df_db, df_piano, df_ricl, mapping, schema_confi
         pass
     pivot_base['TOTALE'] = pivot_base.sum(axis=1)
 
-    # Espandi con subtotali/totali dallo schema
     pivot = _applica_schema_con_totali(pivot_base, schema_config, label_map)
 
-    # Dettaglio drill-down (solo voci contabili)
     dettaglio = {}
     for voce in pivot.index:
-        if str(pivot.loc[voce, '_tipo']) != 'contabile':
+        tipo_v = _safe_str(pivot.loc[voce, '_tipo']) if '_tipo' in pivot.columns else 'contabile'
+        if tipo_v != 'contabile':
             continue
         df_v = db_mapped[db_mapped['_voce_label'] == voce]
         if df_v.empty:
@@ -254,7 +269,7 @@ def costruisci_ce_riclassificato(df_db, df_piano, df_ricl, mapping, schema_confi
 def get_mesi_disponibili(pivot):
     if pivot is None:
         return []
-    return [c for c in pivot.columns if c not in ('TOTALE','_tipo')]
+    return [c for c in pivot.columns if c not in ('TOTALE', '_tipo')]
 
 
 def _find_voce_pivot(pivot, keywords):
@@ -263,7 +278,7 @@ def _find_voce_pivot(pivot, keywords):
     for idx in pivot.index:
         s = str(idx).lower()
         if any(str(k).lower() in s for k in keywords):
-            tipo = pivot.loc[idx, '_tipo'] if '_tipo' in pivot.columns else 'contabile'
+            tipo = _safe_str(pivot.loc[idx, '_tipo']) if '_tipo' in pivot.columns else 'contabile'
             if tipo in ('contabile', 'subtotale', 'totale'):
                 return idx
     return None
@@ -273,13 +288,21 @@ def _sum_voce(pivot, voce, cols):
     if voce is None or voce not in pivot.index:
         return 0.0
     valid = [c for c in cols if c in pivot.columns]
-    return float(pivot.loc[voce, valid].sum()) if valid else 0.0
+    if not valid:
+        return 0.0
+    try:
+        row = pivot.loc[voce, valid]
+        if isinstance(row, pd.DataFrame):
+            row = row.iloc[0]
+        return float(row.sum())
+    except Exception:
+        return 0.0
 
 
 def calcola_kpi_finanziari(pivot, mesi_sel):
     if pivot is None or not mesi_sel:
         return {}
-    cols = [c for c in mesi_sel if c in pivot.columns and c not in ('TOTALE','_tipo')]
+    cols = [c for c in mesi_sel if c in pivot.columns and c not in ('TOTALE', '_tipo')]
     if not cols:
         return {}
 
@@ -309,63 +332,41 @@ def calcola_kpi_finanziari(pivot, mesi_sel):
 def calcola_trend(pivot, voce, n_mesi=6):
     if pivot is None or voce not in pivot.index:
         return None
-    mesi_ord = sorted([c for c in pivot.columns if c not in ('TOTALE','_tipo')])
+    mesi_ord = sorted([c for c in pivot.columns if c not in ('TOTALE', '_tipo')])
     if len(mesi_ord) < 2:
         return None
     mesi_used = mesi_ord[-n_mesi:] if len(mesi_ord) >= n_mesi else mesi_ord
-    vals = [float(pivot.loc[voce, m]) for m in mesi_used]
+    vals = [_safe_scalar(pivot.loc[voce, m]) for m in mesi_used]
     if len(vals) < 2:
         return None
-    media  = float(np.mean(vals))
-    std    = float(np.std(vals))
-    ultimo = vals[-1]
-    prec   = vals[-2]
-    mom    = ((ultimo - prec) / abs(prec) * 100) if prec != 0 else 0.0
-    last3  = vals[-3:] if len(vals) >= 3 else vals
+    media = float(np.mean(vals))
+    std   = float(np.std(vals))
+    last3 = vals[-3:] if len(vals) >= 3 else vals
     direction = ('up'   if all(last3[i] < last3[i+1] for i in range(len(last3)-1)) else
                  'down' if all(last3[i] > last3[i+1] for i in range(len(last3)-1)) else 'flat')
+    prec = vals[-2]
+    mom  = ((vals[-1] - prec) / abs(prec) * 100) if prec != 0 else 0.0
     return {'vals': vals, 'mesi': mesi_used, 'media': media, 'std': std,
             'cv': abs(std/media*100) if media != 0 else 0.0,
-            'mom': mom, 'yoy': 0.0, 'direction': direction, 'ultimo': ultimo}
-
-
-def calcola_ebitda_bridge(pivot, mesi_att, mesi_prec):
-    if pivot is None:
-        return {}
-    def get_period(mesi):
-        cols = [c for c in mesi if c in pivot.columns and c not in ('TOTALE','_tipo')]
-        def s(kw): return _sum_voce(pivot, _find_voce_pivot(pivot, kw), cols)
-        return {'ricavi': s(['ricav','fattur']), 'personale': s(['personale','lavoro']),
-                'acquisti': s(['acquisti','materie']), 'ebitda': s(['ebitda','mol'])}
-    att  = get_period(mesi_att)
-    prec = get_period(mesi_prec)
-    d_ric = att['ricavi']    - prec['ricavi']
-    d_per = -(att['personale'] - prec['personale'])
-    d_acq = -(att['acquisti']  - prec['acquisti'])
-    d_alt = (att['ebitda'] - prec['ebitda']) - d_ric - d_per - d_acq
-    return {'ebitda_prec': prec['ebitda'], 'ebitda_att': att['ebitda'],
-            'delta_ricavi': d_ric, 'delta_personale': d_per,
-            'delta_acquisti': d_acq, 'delta_altri': d_alt}
+            'mom': mom, 'direction': direction, 'ultimo': vals[-1]}
 
 
 def calcola_statistiche_mensili(pivot):
     if pivot is None:
         return {}
-    mesi = [c for c in pivot.columns if c not in ('TOTALE','_tipo')]
+    mesi = [c for c in pivot.columns if c not in ('TOTALE', '_tipo')]
     result = {}
     for voce in pivot.index:
-        tipo = pivot.loc[voce, '_tipo'] if '_tipo' in pivot.columns else 'contabile'
+        tipo = _safe_str(pivot.loc[voce, '_tipo']) if '_tipo' in pivot.columns else 'contabile'
         if tipo == 'separatore':
             continue
-        vals = [float(pivot.loc[voce, m]) for m in mesi if m in pivot.columns]
+        vals = [_safe_scalar(pivot.loc[voce, m]) for m in mesi if m in pivot.columns]
         if not vals:
             continue
         media = float(np.mean(vals))
         std   = float(np.std(vals))
-        result[voce] = {
-            'media': media, 'std': std,
-            'min': float(min(vals)), 'max': float(max(vals)),
-            'cv': abs(std/media*100) if media != 0 else 0.0,
-            'vals': vals, 'mesi': mesi,
-        }
+        result[voce] = {'media': media, 'std': std,
+                        'min': float(min(vals)), 'max': float(max(vals)),
+                        'cv': abs(std/media*100) if media != 0 else 0.0,
+                        'vals': vals, 'mesi': mesi}
     return result
