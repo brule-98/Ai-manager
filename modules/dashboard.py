@@ -107,8 +107,11 @@ def render_dashboard():
         st.warning("Nessun dato per il periodo."); return
 
     # Dati confronto
-    pf      = pivot[cols_filtro].copy()
-    pf['_PERIODO'] = pf.sum(axis=1)
+    # Include _tipo nella copia (essenziale per tabella)
+    pf_cols = [c for c in cols_filtro if c in pivot.columns]
+    tipo_col = ['_tipo'] if '_tipo' in pivot.columns else []
+    pf       = pivot[pf_cols + tipo_col].copy()
+    pf['_PERIODO'] = pf[pf_cols].sum(axis=1)
 
     pf_conf = None
     if anno_conf != '— nessuno —':
@@ -116,7 +119,7 @@ def render_dashboard():
         cols_conf_raw = [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in mesi_num]
         if cols_conf_raw:
             pf_conf = pivot[cols_conf_raw].copy()
-            pf_conf['_PERIODO'] = pf_conf.sum(axis=1)
+            pf_conf['_PERIODO'] = pf_conf[[c for c in cols_conf_raw if c != '_tipo']].sum(axis=1)
 
     kpi = calcola_kpi_finanziari(pivot, cols_filtro)
     kpi_conf = calcola_kpi_finanziari(pivot, [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in {m[5:] for m in cols_filtro}]) if anno_conf != '— nessuno —' else {}
@@ -149,129 +152,216 @@ def render_dashboard():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _render_kpi_cards(kpi, kpi_conf, anno_conf):
-    def card(label, val, unit, color, conf_val):
-        if val is None:
-            return f"""<div class='dash-kpi-card' style='border-left-color:#CBD5E1;opacity:.5'>
-                <div class='dkc-label'>{label}</div>
-                <div class='dkc-value' style='color:#CBD5E1'>—</div>
-            </div>"""
-        v_fmt = f"{val:.1f}{unit}" if unit == '%' else fmt_eur(val)
-        delta_html = ""
-        if conf_val is not None and conf_val != 0:
-            delta_pct = (val - conf_val) / abs(conf_val) * 100
-            clr = '#059669' if delta_pct >= 0 else '#DC2626'
-            sym = '▲' if delta_pct >= 0 else '▼'
-            delta_html = f"<div class='dkc-delta' style='color:{clr}'>{sym} {abs(delta_pct):.1f}% vs {anno_conf}</div>"
-        return f"""<div class='dash-kpi-card' style='border-left-color:{color}'>
-            <div class='dkc-label'>{label}</div>
-            <div class='dkc-value' style='color:{color}'>{v_fmt}</div>
-            {delta_html}
-        </div>"""
+    """KPI cards con inline styles — no CSS class dependency."""
 
-    kpi_defs = [
-        ('Ricavi Netti',   kpi.get('ricavi'),        '€',  '#1A3A7A', kpi_conf.get('ricavi')),
-        ('EBITDA / MOL',  kpi.get('ebitda'),        '€',  '#059669', kpi_conf.get('ebitda')),
-        ('EBITDA Margin', kpi.get('ebitda_margin'), '%', '#7C3AED',  kpi_conf.get('ebitda_margin')),
-        ('Risultato Netto',kpi.get('utile_netto'),  '€',  '#DC2626', kpi_conf.get('utile_netto')),
+    def card(label, val, unit, color, conf_val=None):
+        card_style = (
+            "background:#0D1625;border:1px solid rgba(255,255,255,0.07);"
+            "border-left:4px solid " + color + ";"
+            "border-radius:12px;padding:16px 18px;"
+        )
+        lbl_s = "font-size:0.67rem;text-transform:uppercase;letter-spacing:1.2px;color:#475569;font-weight:700;margin-bottom:6px;"
+        val_s = "font-size:1.4rem;font-weight:800;color:#F1F5F9;letter-spacing:-0.5px;margin-bottom:4px;"
+        sub_s = "font-size:0.74rem;font-weight:600;margin-top:4px;"
+
+        if val is None:
+            v_str = "—"
+        elif unit == '%':
+            v_str = "{:.1f}%".format(val)
+        else:
+            v_str = fmt_eur(val)
+
+        delta = ""
+        if conf_val is not None and conf_val != 0 and val is not None:
+            dp  = (val - conf_val) / abs(conf_val) * 100
+            clr = "#10B981" if dp >= 0 else "#EF4444"
+            sym = "▲" if dp >= 0 else "▼"
+            delta = "<div style='" + sub_s + "color:" + clr + "'>" + sym + " {:.1f}% vs {}".format(abs(dp), anno_conf) + "</div>"
+
+        return (
+            "<div style='" + card_style + "'>"
+            "<div style='" + lbl_s + "'>" + label + "</div>"
+            "<div style='" + val_s + "'>" + v_str + "</div>"
+            + delta + "</div>"
+        )
+
+    defs = [
+        ("📈 Ricavi Netti",   kpi.get("ricavi"),        "€", "#1A3A7A", kpi_conf.get("ricavi")),
+        ("💹 EBITDA / MOL",   kpi.get("ebitda"),        "€", "#059669", kpi_conf.get("ebitda")),
+        ("📊 EBITDA Margin",  kpi.get("ebitda_margin"), "%", "#7C3AED", kpi_conf.get("ebitda_margin")),
+        ("🏆 Risultato Netto",kpi.get("utile_netto"),   "€", "#DC2626", kpi_conf.get("utile_netto")),
     ]
 
-    cards_html = "".join(card(*d) for d in kpi_defs)
-    st.markdown(f"""
-    <style>
-    .dash-kpi-row {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }}
-    .dash-kpi-card {{ background:#0D1625; border-radius:12px; padding:16px 18px;
-                      border:1px solid rgba(255,255,255,0.07); border-left:4px solid #1A3A7A;
-                      transition:transform .15s; }}
-    .dash-kpi-card:hover {{ transform:translateY(-2px); border-color:rgba(201,168,76,0.2); }}
-    .dkc-label {{ font-size:0.68rem; text-transform:uppercase; letter-spacing:1.2px; color:#475569; font-weight:700; margin-bottom:6px; }}
-    .dkc-value {{ font-size:1.4rem; font-weight:800; color:#F1F5F9; letter-spacing:-0.5px; margin-bottom:4px; }}
-    .dkc-delta {{ font-size:0.76rem; font-weight:600; }}
-    </style>
-    <div class='dash-kpi-row'>{cards_html}</div>""", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TABELLA CE — 2 livelli con drill-down
-# ─────────────────────────────────────────────────────────────────────────────
+    cols = st.columns(4)
+    for i, (label, val, unit, color, conf_val) in enumerate(defs):
+        with cols[i]:
+            st.markdown(card(label, val, unit, color, conf_val), unsafe_allow_html=True)
 
 def _render_tabella_ce(ca, pf, dettaglio, cols_filtro, pf_conf, anno_conf, mostra_bud, budget, mesi_filtro, mapping=None, label_map=None):
-    st.markdown("### 📋 Conto Economico Riclassificato")
-    st.markdown("""
-    <div style='font-size:0.79rem;color:#64748B;margin-bottom:16px;padding:10px 14px;
-                background:rgba(255,255,255,0.03);border-radius:6px;border-left:3px solid rgba(201,168,76,0.3)'>
-    💡 Clicca su <b>▶ una voce</b> per espandere il dettaglio dei singoli conti contabili.
-    I valori mensili sono visibili nella riga di riepilogo.
-    </div>""", unsafe_allow_html=True)
+    """Tabella CE con righe stilate per tipo (contabile/subtotale/totale/separatore)."""
 
-    def fmt(v, zero_dash=True):
+    def fmt(v, zero_dash=False):
         try:
             fv = float(v)
             if zero_dash and fv == 0:
                 return "—"
-            s = f"{abs(fv):>12,.0f}".replace(',','X').replace('.',',').replace('X','.')
-            return f"({s} €)" if fv < 0 else f"{s} €"
+            s = "{:,.0f}".format(abs(fv)).replace(",", "X").replace(".", ",").replace("X", ".")
+            return "({} €)".format(s) if fv < 0 else "{} €".format(s)
         except Exception:
-            return str(v)
+            return str(v) if str(v) not in ("nan","None","") else "—"
 
+    # Colonne da mostrare
+    cols_show = [c for c in cols_filtro if c in pf.columns]
+
+    # Intestazioni
+    th_style = "padding:6px 10px;font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#475569;font-weight:700;text-align:right;border-bottom:2px solid rgba(201,168,76,0.3);white-space:nowrap;"
+    th_left  = "padding:6px 10px;font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#475569;font-weight:700;text-align:left;border-bottom:2px solid rgba(201,168,76,0.3);"
+
+    header_cells = "<th style='" + th_left + "'>Voce</th>"
+    for c in cols_show:
+        header_cells += "<th style='" + th_style + "'>" + c.replace("-","‑") + "</th>"
+    header_cells += "<th style='" + th_style + "color:#C9A84C'>Totale Periodo</th>"
+    if pf_conf is not None:
+        header_cells += "<th style='" + th_style + "'>vs " + anno_conf + "</th>"
+        header_cells += "<th style='" + th_style + "'>Δ %</th>"
+    if mostra_bud and budget:
+        header_cells += "<th style='" + th_style + "'>Budget</th>"
+        header_cells += "<th style='" + th_style + "'>Scost.</th>"
+
+    rows_html = ""
     for voce in pf.index:
-        val_tot = float(pf.loc[voce, '_PERIODO']) if '_PERIODO' in pf.columns else 0
-        val_fmt = fmt(val_tot)
+        tipo = str(pf.loc[voce, "_tipo"]) if "_tipo" in pf.columns else "contabile"
 
-        # Colore basato su segno
-        color_val = '#059669' if val_tot > 0 else ('#DC2626' if val_tot < 0 else '#6B7280')
+        if tipo == "separatore":
+            rows_html += "<tr><td colspan='20' style='padding:4px 0;'></td></tr>"
+            continue
 
-        with st.expander(f"**{voce}**  —  {val_fmt}", expanded=False):
-            # Riga riepilogo mensile
-            row_data = {}
-            for c in cols_filtro:
-                if c in pf.columns:
-                    row_data[c.replace('-','\u2011')] = fmt(pf.loc[voce, c])
-            row_data['▶ TOTALE PERIODO'] = val_fmt
+        val_tot = 0.0
+        try:
+            val_tot = float(pf.loc[voce, "_PERIODO"]) if "_PERIODO" in pf.columns else sum(
+                float(pf.loc[voce, c]) for c in cols_show if c in pf.columns)
+        except Exception:
+            pass
 
-            if pf_conf is not None and voce in pf_conf.index:
-                val_c = float(pf_conf.loc[voce, '_PERIODO']) if '_PERIODO' in pf_conf.columns else 0
-                delta_a = val_tot - val_c
-                delta_p = (delta_a / abs(val_c) * 100) if val_c != 0 else 0
-                row_data[f'Conf. {anno_conf}'] = fmt(val_c)
-                row_data['Δ Assoluto'] = fmt(delta_a)
-                row_data['Δ %'] = f"{delta_p:+.1f}%"
+        # Stili per tipo riga
+        if tipo == "totale":
+            row_bg   = "background:rgba(201,168,76,0.12);"
+            lbl_style = "padding:9px 10px;font-size:0.86rem;font-weight:800;color:#C9A84C;border-top:2px solid rgba(201,168,76,0.4);border-bottom:2px solid rgba(201,168,76,0.4);"
+            val_num   = "padding:9px 10px;font-size:0.86rem;font-weight:800;text-align:right;border-top:2px solid rgba(201,168,76,0.4);border-bottom:2px solid rgba(201,168,76,0.4);"
+        elif tipo == "subtotale":
+            row_bg   = "background:rgba(255,255,255,0.04);"
+            lbl_style = "padding:8px 10px;font-size:0.83rem;font-weight:700;color:#E2E8F0;border-top:1px solid rgba(255,255,255,0.12);"
+            val_num   = "padding:8px 10px;font-size:0.83rem;font-weight:700;text-align:right;border-top:1px solid rgba(255,255,255,0.12);"
+        else:  # contabile
+            row_bg   = ""
+            lbl_style = "padding:6px 10px;font-size:0.81rem;font-weight:400;color:#94A3B8;"
+            val_num   = "padding:6px 10px;font-size:0.81rem;text-align:right;"
 
-            if mostra_bud and budget and voce in budget:
-                bud_tot = sum(budget[voce].get(m, 0) for m in cols_filtro)
-                row_data['Budget'] = fmt(bud_tot)
-                row_data['Scostamento'] = fmt(val_tot - bud_tot)
+        # Colore valore totale
+        val_clr = "#10B981" if val_tot > 0 else ("#EF4444" if val_tot < 0 else "#475569")
+        if tipo in ("subtotale","totale"):
+            val_clr = "#C9A84C" if tipo == "totale" else "#E2E8F0"
 
-            df_row = pd.DataFrame([row_data])
-            st.dataframe(df_row, use_container_width=True, hide_index=True)
+        cells = "<td style='" + lbl_style + "'>" + str(voce) + "</td>"
 
-            # Dettaglio conti
-            if voce in dettaglio and not dettaglio[voce].empty:
-                det = dettaglio[voce]
-                cols_det = [c for c in cols_filtro if c in det.columns] + ['TOTALE']
-                det_show = det[[c for c in cols_det if c in det.columns]].copy()
-                # Mostra conti mappati a questa voce (anche con saldo zero)
-                conti_mappati = [c for c, v in mapping.items() if v and label_map.get(str(v), str(v)) == voce]
-                n_con_mov   = len(det_show)
-                n_senza_mov = max(0, len(conti_mappati) - n_con_mov)
-                st.markdown(f"<div style='font-size:0.78rem;color:#4A5568;margin-bottom:6px'>"
-                            f"<b style='color:#1A202C'>Dettaglio per conto:</b> "
-                            f"{n_con_mov} con movimenti"
-                            f"{f' · <span style=color:#F59E0B>{n_senza_mov} senza movimenti nel periodo</span>' if n_senza_mov > 0 else ''}"
-                            f"</div>", unsafe_allow_html=True)
-                det_show_fmt = det_show.apply(lambda col: col.map(lambda x: fmt(x) if isinstance(x, (int, float)) else str(x)))
-                st.dataframe(
-                    det_show_fmt,
-                    use_container_width=True,
-                    height=min(38*len(det_show)+40, 320)
-                )
+        # Valori mensili
+        for c in cols_show:
+            try:
+                v = float(pf.loc[voce, c])
+            except Exception:
+                v = 0.0
+            vc = "#10B981" if v > 0 else ("#EF4444" if v < 0 else "#475569")
+            if tipo in ("subtotale","totale"):
+                vc = val_clr
+            cells += "<td style='" + val_num + "color:" + vc + "'>" + fmt(v, zero_dash=(tipo=="contabile")) + "</td>"
+
+        # Totale periodo
+        cells += "<td style='" + val_num + "font-weight:700;color:" + val_clr + "'>" + fmt(val_tot) + "</td>"
+
+        # Confronto anno
+        if pf_conf is not None:
+            val_c, delta_p = 0.0, 0.0
+            if voce in pf_conf.index:
+                try:
+                    val_c = float(pf_conf.loc[voce, "_PERIODO"]) if "_PERIODO" in pf_conf.columns else 0.0
+                    delta_p = (val_tot - val_c) / abs(val_c) * 100 if val_c != 0 else 0.0
+                except Exception:
+                    pass
+            dc = "#10B981" if delta_p >= 0 else "#EF4444"
+            cells += "<td style='" + val_num + "color:#64748B'>" + fmt(val_c, zero_dash=True) + "</td>"
+            cells += "<td style='" + val_num + "color:" + dc + "'>" + ("{:+.1f}%".format(delta_p) if val_c != 0 else "—") + "</td>"
+
+        # Budget
+        if mostra_bud and budget:
+            bud_tot, scost = 0.0, 0.0
+            if voce in budget:
+                bud_tot = sum(budget[voce].get(m, 0) for m in cols_show)
+                scost   = val_tot - bud_tot
+            sc = "#10B981" if scost >= 0 else "#EF4444"
+            cells += "<td style='" + val_num + "color:#64748B'>" + fmt(bud_tot, zero_dash=True) + "</td>"
+            cells += "<td style='" + val_num + "color:" + sc + "'>" + fmt(scost, zero_dash=True) + "</td>"
+
+        rows_html += "<tr style='" + row_bg + "'>" + cells + "</tr>"
+
+        # Drill-down dettaglio (solo contabili, come sub-tabella collassabile)
+        if tipo == "contabile" and voce in dettaglio and dettaglio[voce] is not None and not dettaglio[voce].empty:
+            det = dettaglio[voce]
+            cols_det = [c for c in cols_show if c in det.columns]
+            for conto_idx in det.index:
+                conto_label_str = str(conto_idx)[:50]
+                sub_cells = "<td style='padding:4px 10px 4px 28px;font-size:0.74rem;color:#475569;'>" + conto_label_str + "</td>"
+                for c in cols_show:
+                    try:
+                        sv = float(det.loc[conto_idx, c]) if c in det.columns else 0.0
+                    except Exception:
+                        sv = 0.0
+                    svc = "#10B981" if sv > 0 else ("#EF4444" if sv < 0 else "#334155")
+                    sub_cells += "<td style='padding:4px 10px;font-size:0.74rem;text-align:right;color:" + svc + ";'>" + fmt(sv, zero_dash=True) + "</td>"
+                try:
+                    sv_tot = float(det.loc[conto_idx, "TOTALE"]) if "TOTALE" in det.columns else 0.0
+                except Exception:
+                    sv_tot = 0.0
+                stc = "#10B981" if sv_tot > 0 else ("#EF4444" if sv_tot < 0 else "#334155")
+                sub_cells += "<td style='padding:4px 10px;font-size:0.74rem;text-align:right;font-weight:600;color:" + stc + ";'>" + fmt(sv_tot, zero_dash=True) + "</td>"
+                if pf_conf is not None:
+                    sub_cells += "<td></td><td></td>"
+                if mostra_bud and budget:
+                    sub_cells += "<td></td><td></td>"
+                rows_html += "<tr style='background:rgba(255,255,255,0.015);border-left:2px solid rgba(255,255,255,0.04);'>" + sub_cells + "</tr>"
+
+    table_html = (
+        "<div style='overflow-x:auto;margin-top:8px'>"
+        "<table style='width:100%;border-collapse:collapse;font-family:Inter,sans-serif;'>"
+        "<thead><tr>" + header_cells + "</tr></thead>"
+        "<tbody>" + rows_html + "</tbody>"
+        "</table></div>"
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
 
     # Export
-    st.markdown("---")
-    export_df = pf[[c for c in cols_filtro if c in pf.columns] + ['_PERIODO']].copy()
-    export_df = export_df.rename(columns={'_PERIODO': 'TOTALE PERIODO'})
-    csv = export_df.to_csv(decimal=',', sep=';').encode('utf-8-sig')
-    st.download_button("⬇️ Esporta CE (CSV)", data=csv,
-                       file_name=f"CE_{ca}_{'-'.join(mesi_filtro[:2])}.csv", mime="text/csv")
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    export_rows = []
+    for voce in pf.index:
+        tipo = str(pf.loc[voce, "_tipo"]) if "_tipo" in pf.columns else "contabile"
+        if tipo == "separatore":
+            continue
+        r = {"Voce": voce, "Tipo": tipo}
+        for c in cols_show:
+            try:
+                r[c] = float(pf.loc[voce, c])
+            except Exception:
+                r[c] = 0.0
+        try:
+            r["TOTALE"] = float(pf.loc[voce, "_PERIODO"]) if "_PERIODO" in pf.columns else 0.0
+        except Exception:
+            r["TOTALE"] = 0.0
+        export_rows.append(r)
+    if export_rows:
+        df_exp = pd.DataFrame(export_rows)
+        csv = df_exp.to_csv(index=False, decimal=",", sep=";").encode("utf-8-sig")
+        st.download_button("⬇️ Esporta CE (CSV)", data=csv,
+                           file_name="CE_{}_{}.csv".format(ca, "-".join(mesi_filtro[:2])),
+                           mime="text/csv")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
