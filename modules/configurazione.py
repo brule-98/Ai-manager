@@ -284,12 +284,12 @@ def render_configurazione():
 
                 # Colore riga per tipo
                 tipo_colors = {
-                    'contabile':  ('#EBF8FF', '#2B6CB0'),
-                    'subtotale':  ('#FFFFF0', '#B7791F'),
-                    'totale':     ('#FFF5F5', '#C53030'),
-                    'separatore': ('#F7FAFC', '#A0AEC0'),
+                    'contabile':  ('rgba(255,255,255,0.02)', '#64748B'),
+                    'subtotale':  ('rgba(255,255,255,0.05)', '#E2E8F0'),
+                    'totale':     ('rgba(201,168,76,0.10)',  '#C9A84C'),
+                    'separatore': ('transparent',            '#334155'),
                 }
-                row_bg, row_accent = tipo_colors.get(tipo_voce, ('#FFFFFF', '#4A5568'))
+                row_bg, row_accent = tipo_colors.get(tipo_voce, ('transparent', '#475569'))
 
                 desc_display = label_map.get(voce, cfg.get('descrizione_override', voce))
                 config_updated[voce] = dict(cfg)
@@ -323,8 +323,26 @@ def render_configurazione():
                                              label_visibility="collapsed",
                                              key=f"tipo_{schema_sel}_{voce}")
                     config_updated[voce]['tipo'] = tipo_sel
-                    # Imposta subtotale flag per compatibilità con riclassifica
                     config_updated[voce]['subtotale'] = (tipo_sel in ('subtotale', 'totale'))
+
+                    # ── voci_include: scegli quali voci contabili sommare ──
+                    if tipo_sel in ('subtotale', 'totale'):
+                        voci_contabili_disponibili = [
+                            k for k, v in config.items()
+                            if v.get('tipo', 'contabile') == 'contabile' and k != voce
+                        ]
+                        cur_include = cfg.get('voci_include', [])
+                        # "Tutte le precedenti" = lista vuota (default)
+                        with st.expander("🔗 Voci incluse", expanded=bool(cur_include)):
+                            st.caption("Lascia vuoto = somma automatica di tutte le voci precedenti")
+                            sel_include = st.multiselect(
+                                "Voci specifiche",
+                                options=voci_contabili_disponibili,
+                                default=[v for v in cur_include if v in voci_contabili_disponibili],
+                                key=f"vinc_{schema_sel}_{voce}",
+                                label_visibility="collapsed"
+                            )
+                        config_updated[voce]['voci_include'] = sel_include
 
                 with cols[4]:
                     segno = st.selectbox("", [1, -1],
