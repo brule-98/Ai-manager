@@ -58,8 +58,8 @@ PLOTLY_THEME = dict(
     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
     font=dict(family='Inter, -apple-system, sans-serif', color='#94A3B8', size=11),
     legend=dict(bgcolor='rgba(0,0,0,0)', bordercolor='rgba(255,255,255,0.06)',
-                orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0),
-    margin=dict(l=0, r=0, t=40, b=0),
+                orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0,
+                font=dict(size=10, color='#94A3B8')),
     hoverlabel=dict(bgcolor='#0F1923', bordercolor='#C9A84C', font_color='#E2E8F0'),
 )
 
@@ -281,141 +281,231 @@ def _render_auto_kpi_dashboard(pivot, mesi, budget, ca):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _render_chat(ca, cliente, pivot, mesi, budget):
+    """Chat CFO AI con contesto finanziario completo e analisi causa-effetto."""
     if 'cfo_chat_history' not in st.session_state:
         st.session_state['cfo_chat_history'] = []
 
-    cfo_cfg = cliente.get('cfo_settings', {})
-    settore = cfo_cfg.get('settore', '')
-    note_az = cfo_cfg.get('note_azienda', '')
+    cfo_cfg  = cliente.get('cfo_settings', {})
+    settore  = cfo_cfg.get('settore', '')
+    note_az  = cfo_cfg.get('note_azienda', '')
 
-    # ── Prompt rapidi ────────────────────────────────────────────────────────
-    st.markdown(f"<div style='font-size:0.72rem;text-transform:uppercase;letter-spacing:2px;color:{C['gold']};font-weight:700;margin-bottom:12px'>⚡ ANALISI RAPIDA</div>", unsafe_allow_html=True)
+    # ── Quick prompts migliorati ────────────────────────────────────────────
+    st.markdown(
+        "<div style='font-size:0.67rem;text-transform:uppercase;letter-spacing:2px;"
+        "color:" + C['gold'] + ";font-weight:700;margin-bottom:10px'>⚡ Analisi rapida</div>",
+        unsafe_allow_html=True
+    )
 
-    quick_prompts = [
-        ("📊 EBITDA Bridge",    "Costruisci l'EBITDA Bridge completo per il periodo più recente: decomponi la variazione in Volume, Prezzo/Mix, Efficienza costi, One-off. Quantifica ogni componente in € e %. Identifica il driver principale."),
-        ("⚠️ Top 3 Rischi",    "Analizza i 3 rischi finanziari più critici emergenti dai dati. Per ognuno: probabilità (Alta/Media/Bassa), impatto stimato in €, segnali premonitori nei numeri, azione di mitigazione concreta."),
-        ("💡 Leve Redditività", "Identifica le top 3 leve per migliorare l'EBITDA margin. Per ognuna: impatto € stimato, fattibilità, tempo di realizzazione, rischi. Usa la struttura: Leva → Driver → Azione → Impatto → Timeline."),
-        ("🎯 Outlook Q+1",      "Proiezione per il prossimo trimestre nei 3 scenari (Bear 25%, Base 50%, Bull 25%). Per ogni scenario: assunzione chiave, EBITDA stimato, Revenue, Net Margin. Cosa devo monitorare ogni settimana?"),
-        ("💰 Cash Flow",       "Analisi della generazione di cassa partendo dall'EBITDA. Stima FCF = EBITDA − Capex stimato ± ΔWorking Capital. Dove si congela o si libera cassa? CCC stimato e ottimizzazione possibile."),
-        ("🏦 DuPont Analysis", "Esegui la decomposizione DuPont completa: ROE = Net Margin × Asset Turnover × Leverage. Dove si crea valore? Confronto vs benchmark settore. ROIC vs costo stimato del capitale (WACC ~9%)."),
-        ("📈 Crescita ricavi", "Analizza il trend ricavi: Volume vs Prezzo vs Mix. Stagionalità, concentrazione clienti, qualità e ricorrenza. Proietti i ricavi nei prossimi 3 mesi. Quale leva di crescita è più praticabile?"),
-        ("🔬 Altman Z-Score",  "Stima il rischio default con Altman Z'-Score per PMI (Z' = 0.717×X1 + 0.847×X2 + 3.107×X3 + 0.420×X4 + 0.998×X5). Interpreta i dati CE disponibili per stimare X1-X5. Zona: sicura/grigia/distress?"),
+    QUICK = [
+        ("📊 EBITDA Bridge",     "Costruisci l'EBITDA Bridge completo: decomponi la variazione in Volume, Prezzo/Mix, Efficienza costi, One-off. Quantifica ogni componente in € e %. Qual è il driver dominante?"),
+        ("🔍 Cause & Effetti",   "Analisi causa-effetto approfondita: per ogni variazione significativa (>5% su ricavi, costi, margine) identifica la CAUSA primaria, l'EFFETTO a cascata su altri KPI, e la RISPOSTA raccomandata. Schema: Causa → Driver → Effetto → KPI impattati → Azione."),
+        ("⚠️ Top 3 Rischi",     "I 3 rischi finanziari critici emergenti dai dati: probabilità (A/M/B), impatto in €, segnali premonitori nei numeri, azione di mitigazione concreta con timeline."),
+        ("💡 Leve Redditività",  "Top 3 leve per migliorare EBITDA margin: impatto € stimato, fattibilità operativa, tempo di realizzazione, owner, rischi. Struttura: Leva → Driver → Azione → Impatto → Timeline → Owner."),
+        ("🎯 Outlook Q+1",       "Proiezione prossimo trimestre in 3 scenari (Bear 25%, Base 50%, Bull 25%). Per scenario: assunzione chiave, EBITDA stimato, Revenue. KPI sentinella da monitorare settimanalmente."),
+        ("💰 Cash Flow",         "Analisi generazione cassa: FCF = EBITDA − Capex stimato ± ΔWorking Capital. Dove si congela la cassa? CCC stimato. Azioni di ottimizzazione con impatto in € e giorni."),
+        ("📈 Analisi Ricavi",    "Decomponi ricavi: Volume/Prezzo/Mix. Stagionalità, concentrazione, ricorrenza. Confronto vs periodo precedente con varianza assoluta e %. Proiezione 3 mesi con assunzioni esplicite."),
+        ("🔬 Altman Z-Score",    "Stima rischio default con Altman Z'-Score PMI: Z'=0.717×X1+0.847×X2+3.107×X3+0.420×X4+0.998×X5. Interpreta i dati CE per stimare i parametri. Zona: sicura/grigia/distress?"),
     ]
 
-    rows = [quick_prompts[i:i+4] for i in range(0, len(quick_prompts), 4)]
+    rows = [QUICK[i:i+4] for i in range(0, len(QUICK), 4)]
     for row in rows:
         cols = st.columns(4)
         for i, (label, prompt) in enumerate(row):
             with cols[i]:
-                if st.button(label, key=f"qp_{label}", use_container_width=True):
+                if st.button(label, key="qp_" + label[:8], use_container_width=True):
                     st.session_state['cfo_pending_prompt'] = prompt
 
-    # ── Chat history ─────────────────────────────────────────────────────────
-    st.markdown("<hr style='border-color:rgba(255,255,255,0.06);margin:16px 0'>", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:rgba(255,255,255,0.06);margin:14px 0'>", unsafe_allow_html=True)
 
-    for msg in st.session_state['cfo_chat_history']:
-        if msg['role'] == 'user':
-            st.markdown(f"""
-            <div class='chat-user'>
-                <div class='chat-label-user'>👤 TU</div>
-                <div class='chat-text'>{msg["content"]}</div>
-            </div>""", unsafe_allow_html=True)
-        else:
-            content = msg["content"]
-            # Render HTML se il contenuto inizia con tag HTML
-            if content.strip().startswith('<div') or content.strip().startswith('<p'):
-                st.markdown(f"""
-                <div class='chat-ai'>
-                    <div class='chat-label-ai'>🤖 CFO AI — ANALISI</div>
-                    <div class='chat-text'>{content}</div>
-                </div>""", unsafe_allow_html=True)
+    # ── Chat history ────────────────────────────────────────────────────────
+    chat_container = st.container()
+    with chat_container:
+        for msg in st.session_state['cfo_chat_history']:
+            role = msg['role']
+            content = msg['content']
+            if role == 'user':
+                st.markdown(
+                    "<div class='chat-user'>"
+                    "<div class='chat-label-user'>👤 Tu</div>"
+                    "<div class='chat-text'>" + content + "</div>"
+                    "</div>",
+                    unsafe_allow_html=True
+                )
             else:
-                st.markdown(f"""
-                <div class='chat-ai'>
-                    <div class='chat-label-ai'>🤖 CFO AI — ANALISI</div>
-                    <div class='chat-text'>{content}</div>
-                </div>""", unsafe_allow_html=True)
+                # Determine rendering: HTML vs markdown
+                is_html = content.strip().startswith('<')
+                if is_html:
+                    st.markdown(
+                        "<div class='chat-ai'>"
+                        "<div class='chat-label-ai'>🤖 CFO AI</div>"
+                        "<div class='chat-text'>" + content + "</div>"
+                        "</div>",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown(
+                        "<div class='chat-ai'>"
+                        "<div class='chat-label-ai'>🤖 CFO AI</div>"
+                        "</div>",
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(content)
 
-    # ── Input ────────────────────────────────────────────────────────────────
+    # ── Input area ──────────────────────────────────────────────────────────
     default_val = st.session_state.pop('cfo_pending_prompt', '')
+
     domanda = st.text_area(
-        "Scrivi la tua domanda:",
+        "Domanda:",
         value=default_val,
-        height=80,
-        placeholder="Es: Come spiego la variazione EBITDA al CDA? Dove posso tagliare costi? Outlier insolito su costi logistici...",
+        height=90,
+        placeholder="Es: Perché il margine è sceso? Come spiego la variazione EBITDA al CDA? Dove tagliare costi mantenendo qualità?",
         key="cfo_chat_input_main",
         label_visibility="collapsed"
     )
 
-    c1, c2, c3, c4, c5 = st.columns([4, 1, 1, 1, 1])
+    c1, c2, c3, c4, c5, c6 = st.columns([5, 1, 1, 1, 1, 1])
     with c1:
         send = st.button("📨 Analizza con CFO AI", type="primary", use_container_width=True)
     with c2:
-        n_mesi_ctx = st.selectbox("Contesto:", [3, 6, 12], index=1, key="ctx_m",
-                                   format_func=lambda x: f"↩ {x}m")
+        n_mesi_ctx = st.selectbox("", [3, 6, 12], index=1, key="ctx_m",
+                                   format_func=lambda x: f"{x}m ctx")
     with c3:
-        inc_data = st.checkbox("CE", value=True, key="chat_ce")
+        inc_ce  = st.checkbox("CE", value=True, key="chat_ce")
     with c4:
         inc_bud = st.checkbox("Budget", value=bool(budget), key="chat_bud")
     with c5:
-        if st.button("🗑️", use_container_width=True, help="Reset chat"):
+        inc_kpi = st.checkbox("KPI", value=True, key="chat_kpi")
+    with c6:
+        if st.button("🗑️", help="Reset chat", use_container_width=True):
             st.session_state['cfo_chat_history'] = []
             st.rerun()
 
     if send and domanda.strip():
         api_key = get_api_key()
         if not api_key:
-            st.error("⚠️ API Key non configurata. Vai in ⚙️ Settings."); return
+            st.error("⚠️ API Key non configurata. Vai in ⚙️ Settings.")
+            return
 
         mesi_ctx = mesi[-n_mesi_ctx:]
-        ce_text  = format_ce_for_prompt(pivot, mesi_ctx) if inc_data else ""
-        kpi_data = calcola_kpi_finanziari(pivot, mesi_ctx) if inc_data else {}
-        kpi_text = format_kpi_for_prompt(kpi_data)
-        bud_text = format_budget_variance_for_prompt(pivot, budget, mesi_ctx) if (inc_bud and budget) else ""
 
-        context = build_chat_context(
-            ca, ce_text, kpi_text,
-            f"{mesi_ctx[0]} → {mesi_ctx[-1]}",
-            bud_text, settore, note_az
-        ) if inc_data else ""
+        # Costruisci contesto finanziario arricchito
+        context_parts = []
 
+        if inc_ce and pivot is not None:
+            ce_text = format_ce_for_prompt(pivot, mesi_ctx)
+            context_parts.append("## CONTO ECONOMICO RICLASSIFICATO\n```\n" + ce_text + "\n```")
+
+        if inc_kpi:
+            kpi_data = calcola_kpi_finanziari(pivot, mesi_ctx)
+            kpi_text = format_kpi_for_prompt(kpi_data)
+            context_parts.append("## KPI PERIODO\n" + kpi_text)
+
+            # Aggiungi trend mensile per ogni KPI
+            kpi_trend = []
+            for m in mesi_ctx:
+                kpi_m = calcola_kpi_finanziari(pivot, [m])
+                if kpi_m:
+                    kpi_trend.append(
+                        f"{m}: Ricavi={kpi_m.get('ricavi',0):,.0f}€ "
+                        f"EBITDA={kpi_m.get('ebitda',0):,.0f}€ "
+                        f"EBITDA%={kpi_m.get('ebitda_margin',0):.1f}%"
+                    )
+            if kpi_trend:
+                context_parts.append("## TREND MENSILE KPI\n" + "\n".join(kpi_trend))
+
+        if inc_bud and budget:
+            bud_text = format_budget_variance_for_prompt(pivot, budget, mesi_ctx)
+            if bud_text:
+                context_parts.append("## SCOSTAMENTI BUDGET\n" + bud_text)
+
+        # Aggiungi variazioni mese-su-mese per analisi causa-effetto
+        if pivot is not None and len(mesi_ctx) >= 2:
+            delta_rows = []
+            sorted_mesi = sorted([m for m in mesi_ctx if m in pivot.columns])
+            if len(sorted_mesi) >= 2:
+                m_curr = sorted_mesi[-1]
+                m_prev = sorted_mesi[-2]
+                for voce in pivot.index:
+                    v_curr = float(pivot.loc[voce, m_curr])
+                    v_prev = float(pivot.loc[voce, m_prev])
+                    delta  = v_curr - v_prev
+                    delta_pct = (delta / abs(v_prev) * 100) if v_prev != 0 else 0
+                    if abs(delta) > 100:  # Soglia minima
+                        delta_rows.append(
+                            f"  {voce[:35]:35s}: {delta:+,.0f}€ ({delta_pct:+.1f}%) "
+                            f"[{m_prev} → {m_curr}]"
+                        )
+                if delta_rows:
+                    context_parts.append(
+                        "## VARIAZIONI MOM (Mese su Mese) — utile per causa-effetto\n"
+                        + "\n".join(delta_rows)
+                    )
+
+        if settore:
+            context_parts.append("## SETTORE AZIENDALE\n" + settore)
+        if note_az:
+            context_parts.append("## NOTE AZIENDA\n" + note_az)
+        context_parts.append("## PERIODO ANALISI\n" + " → ".join([mesi_ctx[0], mesi_ctx[-1]]))
+
+        context = "\n\n".join(context_parts)
+
+        # History (ultimi 10 messaggi, escludi contesti pesanti)
         history = [
-            {"role": h['role'], "content": h['content']}
-            for h in st.session_state['cfo_chat_history'][-8:]
+            {"role": h["role"], "content": h["content"][:2000]}  # Tronca messaggi lunghi
+            for h in st.session_state["cfo_chat_history"][-10:]
         ]
-        user_content = f"{context}\n\nDomanda: {domanda.strip()}" if context else domanda.strip()
-        history.append({"role": "user", "content": user_content})
+
+        if context:
+            user_msg = context + "\n\n---\n\nDomanda CFO: " + domanda.strip()
+        else:
+            user_msg = domanda.strip()
+
+        history.append({"role": "user", "content": user_msg})
 
         risposta = ""
         placeholder = st.empty()
         try:
-            client = anthropic.Anthropic(api_key=api_key)
+            import anthropic as _anthropic
+            client = _anthropic.Anthropic(api_key=api_key)
             with client.messages.stream(
-                model="claude-opus-4-6",
-                max_tokens=3000,
+                model="claude-opus-4-5-20251101",
+                max_tokens=4000,
                 system=CFO_SYSTEM_PROMPT,
                 messages=history
             ) as stream:
-                for text in stream.text_stream:
-                    risposta += text
+                for chunk in stream.text_stream:
+                    risposta += chunk
+                    # Streaming preview
+                    preview = risposta[-1000:] if len(risposta) > 1000 else risposta
                     placeholder.markdown(
-                        f"<div class='chat-ai streaming'>"
-                        f"<div class='chat-label-ai'>🤖 CFO AI — IN ANALISI…</div>"
-                        f"<div class='chat-text'>{risposta}▌</div></div>",
+                        "<div class='chat-ai'>"
+                        "<div class='chat-label-ai'>🤖 CFO AI — in analisi…</div>"
+                        "<div class='chat-text' style='font-size:0.84rem;line-height:1.7'>"
+                        + preview + "▌</div></div>",
                         unsafe_allow_html=True
                     )
 
             placeholder.empty()
-            st.session_state['cfo_chat_history'].append({'role': 'user', 'content': domanda.strip()})
-            st.session_state['cfo_chat_history'].append({'role': 'assistant', 'content': risposta})
+            # Salva in history il messaggio user originale (senza contesto pesante)
+            st.session_state["cfo_chat_history"].append(
+                {"role": "user", "content": domanda.strip()}
+            )
+            st.session_state["cfo_chat_history"].append(
+                {"role": "assistant", "content": risposta}
+            )
             st.rerun()
 
         except Exception as e:
             err = str(e)
-            if '401' in err or 'authentication' in err.lower():
-                st.error("🔑 API Key non valida. Verifica in ⚙️ Settings → API Key.")
+            placeholder.empty()
+            if "401" in err or "authentication" in err.lower() or "invalid x-api-key" in err.lower():
+                st.error("🔑 API Key non valida. Verifica in Workspace → API Key.")
+            elif "overloaded" in err.lower() or "529" in err:
+                st.error("⏳ Claude è sovraccarico. Riprova tra 30 secondi.")
+            elif "rate" in err.lower():
+                st.error("⏳ Rate limit raggiunto. Attendi un minuto.")
             else:
-                st.error(f"Errore: {err}")
+                st.error("Errore: " + err[:300])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -862,7 +952,7 @@ def _render_report_gen(ca, cliente, pivot, mesi, budget):
             token_count = 0
 
             with client.messages.stream(
-                model="claude-opus-4-6",
+                model="claude-opus-4-5-20251101",
                 max_tokens=5000,
                 system=CFO_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}]
@@ -1043,7 +1133,7 @@ def _render_anomalie(ca, cliente, pivot, mesi, budget):
         try:
             client = anthropic.Anthropic(api_key=api_key)
             with client.messages.stream(
-                model="claude-opus-4-6", max_tokens=3500,
+                model="claude-opus-4-5-20251101", max_tokens=3500,
                 system=CFO_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}]
             ) as stream:
@@ -1252,7 +1342,7 @@ def _render_market_intel(ca, cliente, mesi):
             try:
                 ws_prompt = f"Trova informazioni aggiornate (ultimi 60 giorni) su: economia italiana e settore {settore_mi}. Include dati macroeconomici, normativa fiscale recente, trend settoriale."
                 ws_resp = client.messages.create(
-                    model="claude-opus-4-6", max_tokens=2000,
+                    model="claude-opus-4-5-20251101", max_tokens=2000,
                     messages=[{"role": "user", "content": ws_prompt}],
                     tools=[{"type": "web_search_20250305", "name": "web_search"}]
                 )
@@ -1265,7 +1355,7 @@ def _render_market_intel(ca, cliente, mesi):
             prompt = build_market_context_prompt(settore_mi, periodo_mi, web_content)
 
             with client.messages.stream(
-                model="claude-opus-4-6", max_tokens=3500,
+                model="claude-opus-4-5-20251101", max_tokens=3500,
                 system=CFO_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}]
             ) as stream:
