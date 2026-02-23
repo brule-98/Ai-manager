@@ -152,6 +152,32 @@ def render_cfo_agent():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _pval(pivot, voce, col, default=0.0):
+    """Estrae scalare float sicuro da pivot (gestisce Series da label duplicati)."""
+    if col not in pivot.columns:
+        return default
+    try:
+        v = pivot.loc[voce, col]
+        if isinstance(v, pd.Series):
+            v = v.iloc[0] if len(v) > 0 else default
+        f = float(v)
+        return default if f != f else f  # NaN → default
+    except Exception:
+        return default
+
+def _is_sep(pivot, voce):
+    """True se la riga è un separatore."""
+    if '_tipo' not in pivot.columns:
+        return False
+    try:
+        t = pivot.loc[voce, '_tipo']
+        if isinstance(t, pd.Series):
+            t = t.iloc[0] if len(t) > 0 else ''
+        return str(t) == 'separatore'
+    except Exception:
+        return False
+
 # AUTO KPI DASHBOARD
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -264,7 +290,7 @@ def _render_auto_kpi_dashboard(pivot, mesi, budget, ca):
         cols = st.columns(len(row))
         for ci, (d, col) in enumerate(zip(row, cols)):
             with col:
-                st.markdown(kpi_card(*d), unsafe_allow_html=True)
+                st.html(kpi_card(*d))
 
     # ── MINI SPARK CHARTS ─────────────────────────────────────────────────────
     voci_spark = [v for v in [
@@ -278,7 +304,7 @@ def _render_auto_kpi_dashboard(pivot, mesi, budget, ca):
         fig = go.Figure()
         colors_spark = [C['blue'], C['green'], C['gold']]
         for i, voce in enumerate(voci_spark[:3]):
-            vals = [float(pivot.loc[voce, m]) if m in pivot.columns else 0 for m in all_mesi_plot]
+            vals = [_pval(pivot, voce, m) for m in all_mesi_plot]
             fig.add_trace(go.Scatter(
                 x=all_mesi_plot, y=vals, name=str(voce)[:25],
                 mode='lines', line=dict(color=colors_spark[i], width=2),
@@ -448,8 +474,8 @@ def _render_chat(ca, cliente, pivot, mesi, budget):
                 m_curr = sorted_mesi[-1]
                 m_prev = sorted_mesi[-2]
                 for voce in pivot.index:
-                    v_curr = float(pivot.loc[voce, m_curr])
-                    v_prev = float(pivot.loc[voce, m_prev])
+                    v_curr = _pval(pivot, voce, m_curr)
+                    v_prev = _pval(pivot, voce, m_prev)
                     delta  = v_curr - v_prev
                     delta_pct = (delta / abs(v_prev) * 100) if v_prev != 0 else 0
                     if abs(delta) > 100:  # Soglia minima
@@ -563,7 +589,7 @@ def _render_visual_analytics(pivot, mesi, budget):
             for voce in voci_sel:
                 for m in mesi_p:
                     if m in pivot.columns:
-                        rows_data.append({'Mese': m, 'Voce': str(voce)[:30], 'Importo': float(pivot.loc[voce, m])})
+                        rows_data.append({'Mese': m, 'Voce': str(voce)[:30], 'Importo': _pval(pivot, voce, m)})
             df_m = pd.DataFrame(rows_data)
 
             PALETTE = ['#3B82F6', '#10B981', '#C9A84C', '#EF4444', '#8B5CF6', '#F59E0B', '#06B6D4', '#EC4899']
@@ -584,7 +610,7 @@ def _render_visual_analytics(pivot, mesi, budget):
                              barmode='stack', color_discrete_map=color_map)
             else:  # Waterfall mensile
                 voce_wf = voci_sel[0]
-                vals_wf = [float(pivot.loc[voce_wf, m]) if m in pivot.columns else 0 for m in mesi_p]
+                vals_wf = [_pval(pivot, voce_wf, m) for m in mesi_p]
                 fig = go.Figure(go.Waterfall(
                     orientation='v', x=mesi_p, y=vals_wf,
                     connector=dict(line=dict(color='rgba(255,255,255,0.1)', width=1)),
@@ -665,7 +691,7 @@ def _render_visual_analytics(pivot, mesi, budget):
             def period_sum(cols, voce):
                 if voce not in pivot.index:
                     return 0.0
-                return float(sum(pivot.loc[voce, c] for c in cols if c in pivot.columns))
+                return sum(_pval(pivot, voce, c) for c in cols if c in pivot.columns)
 
             from services.riclassifica import _find_voce_pivot
             v_ricavi = _find_voce_pivot(pivot, ['ricav','fattur','vendite'])
@@ -826,7 +852,13 @@ def _render_visual_analytics(pivot, mesi, budget):
             soglia_pct = st.slider("Soglia minima (%):", 0.5, 10.0, 2.0, 0.5, key="comp_soglia")
 
         if mese_comp in pivot.columns:
-            vals_comp = {v: float(pivot.loc[v, mese_comp]) for v in pivot.index}
+            vals_comp = {}
+            for _v in pivot.index:
+                if _is_sep(pivot, _v):
+                    continue
+                _val = _pval(pivot, _v, mese_comp)
+                if _val != 0.0:
+                    vals_comp[str(_v)[:35]] = _val
             pos = {k: v for k, v in vals_comp.items() if v > 0}
             neg = {k: abs(v) for k, v in vals_comp.items() if v < 0}
 
@@ -1186,7 +1218,7 @@ def _calcola_anomalie_avanzate(pivot, budget, mesi, n_finestra) -> list:
         s  = stat[voce]
         if s['media'] == 0:
             continue
-        vals_an = [float(pivot.loc[voce, m]) for m in mesi_an if m in pivot.columns]
+        vals_an = [_pval(pivot, voce, m) for m in mesi_an if m in pivot.columns]
         if not vals_an:
             continue
         ultimo = vals_an[-1]
@@ -1264,7 +1296,7 @@ def _calcola_anomalie_avanzate(pivot, budget, mesi, n_finestra) -> list:
 
 def _render_trend_chart_with_bands(pivot, voce, mesi):
     """Visualizza trend con banda di confidenza ±2σ."""
-    vals  = [float(pivot.loc[voce, m]) for m in mesi if m in pivot.columns]
+    vals  = [_pval(pivot, voce, m) for m in mesi if m in pivot.columns]
     mesi_v = [m for m in mesi if m in pivot.columns]
     if not vals:
         return
