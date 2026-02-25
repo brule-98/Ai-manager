@@ -155,7 +155,7 @@ def render_dashboard():
 
     with tab_ce:
         _render_tabella_ce(ca, pf, dettaglio, pf_cols, pf_conf,
-                           anno_conf, mostra_bud, budget, mesi_filtro)
+                           anno_conf, mostra_bud, budget, mesi_filtro, schema_cfg)
     with tab_grafici:
         _render_grafici(pivot, mesi, kpi)
     with tab_budget:
@@ -204,7 +204,7 @@ def _render_kpi_cards(kpi, kpi_conf, anno_conf):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _render_tabella_ce(ca, pf, dettaglio, cols_show, pf_conf,
-                        anno_conf, mostra_bud, budget, mesi_filtro):
+                        anno_conf, mostra_bud, budget, mesi_filtro, schema_cfg=None):
     """
     Matrice CE con:
     - colonne = mesi selezionati + Totale Periodo
@@ -302,14 +302,28 @@ details[open] summary.ce-sum::before { transform:rotate(90deg); }
 
         row_cls = {'contabile': 'ce-row-c', 'subtotale': 'ce-row-s', 'totale': 'ce-row-t'}.get(tipo, 'ce-row-c')
 
-        # Nome voce: espandibile solo se ha dettaglio
+        # Numero d'ordine + Nome voce: espandibile se ha dettaglio
+        ordine_num = schema_cfg.get(
+            _safe_str(pf.loc[voce, '_cod']) if '_cod' in pf.columns else '',
+            {}
+        ).get('ordine', '') if schema_cfg else ''
+        order_badge = f"<span class='ce-order'>{ordine_num}</span>" if ordine_num else ''
+
         has_detail = (tipo == 'contabile' and voce in dettaglio
                       and dettaglio[voce] is not None and not dettaglio[voce].empty)
+
+        n_conti = len(dettaglio[voce]) if has_detail else 0
+        n_badge = f" <span style='font-size:0.65rem;color:#334155;margin-left:4px'>({n_conti} conti)</span>" if n_conti else ''
+
         if has_detail:
-            nome_cell = (f"<details><summary class='ce-sum'>{voce}</summary>"
-                         f"_DETAIL_{voce}_</details>")
+            # Partono CHIUSE (<details> senza attributo open)
+            nome_cell = (f"<details>"
+                         f"<summary class='ce-sum'>{order_badge}{voce}{n_badge}</summary>"
+                         f"_DETAIL_{voce}_"
+                         f"</details>")
         else:
-            nome_cell = str(voce)
+            indent = '' if tipo != 'contabile' else ""
+            nome_cell = f"{order_badge}{voce}"
         td_nome = f"<td class='left'>{nome_cell}</td>"
 
         # Valori mensili
