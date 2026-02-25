@@ -302,28 +302,21 @@ details[open] summary.ce-sum::before { transform:rotate(90deg); }
 
         row_cls = {'contabile': 'ce-row-c', 'subtotale': 'ce-row-s', 'totale': 'ce-row-t'}.get(tipo, 'ce-row-c')
 
-        # Numero d'ordine + Nome voce: espandibile se ha dettaglio
-        ordine_num = schema_cfg.get(
-            _safe_str(pf.loc[voce, '_cod']) if '_cod' in pf.columns else '',
-            {}
-        ).get('ordine', '') if schema_cfg else ''
-        order_badge = f"<span class='ce-order'>{ordine_num}</span>" if ordine_num else ''
-
+        # Nome voce = descrizione (pivot.index) — SEMPRE description, mai codice
         has_detail = (tipo == 'contabile' and voce in dettaglio
                       and dettaglio[voce] is not None and not dettaglio[voce].empty)
-
         n_conti = len(dettaglio[voce]) if has_detail else 0
-        n_badge = f" <span style='font-size:0.65rem;color:#334155;margin-left:4px'>({n_conti} conti)</span>" if n_conti else ''
+        n_badge = (f" <span style='font-size:0.64rem;color:#334155;font-weight:400'>"
+                   f"({n_conti})</span>") if n_conti else ''
 
         if has_detail:
-            # Partono CHIUSE (<details> senza attributo open)
+            # <details> senza "open" = collassato di default
             nome_cell = (f"<details>"
-                         f"<summary class='ce-sum'>{order_badge}{voce}{n_badge}</summary>"
+                         f"<summary class='ce-sum'>{voce}{n_badge}</summary>"
                          f"_DETAIL_{voce}_"
                          f"</details>")
         else:
-            indent = '' if tipo != 'contabile' else ""
-            nome_cell = f"{order_badge}{voce}"
+            nome_cell = str(voce)
         td_nome = f"<td class='left'>{nome_cell}</td>"
 
         # Valori mensili
