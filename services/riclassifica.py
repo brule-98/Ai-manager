@@ -143,11 +143,11 @@ def _applica_schema_con_totali(pivot_contabili, schema_config, label_map):
     for cod in voci_ordinate:
         cfg  = schema_config[cod]
         tipo = cfg.get('tipo', 'contabile')
-        # Display label (può essere personalizzato dall'utente)
+        # Display label (sempre la descrizione leggibile)
         desc = cfg.get('descrizione_override') or label_map.get(cod) or cod
-        # Lookup label = il label che è effettivamente nell'indice di pivot_contabili
-        # Priorità: label_map[cod] (da df_ricl) > cod > desc
-        lookup_label = label_map.get(cod, cod)
+        # Lookup nel pivot: il pivot_base.index è già stato rinominato con le descrizioni
+        # quindi cerchiamo prima per desc, poi per label_map originale, poi per cod
+        lookup_label = desc
 
         if tipo == 'separatore':
             _sep_counter[0] += 1
@@ -283,7 +283,8 @@ def costruisci_ce_riclassificato(df_db, df_piano, df_ricl, mapping, schema_confi
         ).format(list(db['_conto_str'].unique())[:5], list(mapping.keys())[:5])
 
     db_mapped['_desc_conto']    = db_mapped['_conto_str'].map(conto_label).fillna(db_mapped['_conto_str'])
-    db_mapped['_conto_display'] = db_mapped['_conto_str'] + ' — ' + db_mapped['_desc_conto']
+    # Mostra solo descrizione, senza codice conto
+    db_mapped['_conto_display'] = db_mapped['_desc_conto'].where(db_mapped['_desc_conto'].notna() & (db_mapped['_desc_conto'] != db_mapped['_conto_str']), db_mapped['_conto_str'])
 
     # Pivot base: indice = _voce_label (es. "Ricavi Commerciali")
     pivot_base = pd.pivot_table(
@@ -296,6 +297,17 @@ def costruisci_ce_riclassificato(df_db, df_piano, df_ricl, mapping, schema_confi
     except Exception:
         pass
     pivot_base['TOTALE'] = pivot_base.sum(axis=1)
+    # Rinomina indice: codici → descrizioni usando label_map + descrizione_override da schema
+    # Questo garantisce che pivot.index contenga SEMPRE descrizioni leggibili
+    if schema_config:
+        # Costruisci mappa codice→descrizione da schema_config (ha la precedenza)
+        schema_desc = {
+            label_map.get(cod, cod): cfg.get('descrizione_override') or label_map.get(cod) or cod
+            for cod, cfg in schema_config.items()
+            if cfg.get('tipo', 'contabile') == 'contabile'
+        }
+        if schema_desc:
+            pivot_base.index = [schema_desc.get(idx, idx) for idx in pivot_base.index]
 
     # Espandi con subtotali/totali
     pivot = _applica_schema_con_totali(pivot_base, schema_config, label_map)
