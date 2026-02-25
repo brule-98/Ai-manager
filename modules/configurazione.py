@@ -24,9 +24,10 @@ C = {
 }
 
 TIPI_VOCE = {
-    'contabile': 'Voce contabile (somma conti mappati)',
-    'subtotale': 'Subtotale (somma di voci precedenti)',
-    'totale':    'Totale (somma di tutte le voci fino a qui)',
+    'contabile':  'Voce contabile (somma conti mappati)',
+    'formula':    'Formula personalizzata (riferisce ad altre voci o costanti)',
+    'subtotale':  'Subtotale (somma di voci precedenti)',
+    'totale':     'Totale (somma di tutte le voci fino a qui)',
     'separatore': 'Separatore / riga vuota',
 }
 
@@ -379,6 +380,35 @@ def render_configurazione():
                             key=f"kpirole_{schema_sel}_{voce}"
                         )
                         config_updated[voce]['kpi_role'] = new_role
+
+                # ── Formula (solo per tipo = formula) ──────────────────────
+                if tipo_sel == 'formula':
+                    cur_formula = cfg.get('formula', '')
+                    with st.expander("🧮 Formula", expanded=bool(cur_formula)):
+                        st.markdown(
+                            """<div style='font-size:0.75rem;color:#475569;margin-bottom:6px'>
+                            Usa i <b>codici voce</b> come variabili (es. <code>A01 + B02 * 0.5</code>).<br>
+                            Operatori: <code>+ - * / ( )</code> — numeri costanti supportati.<br>
+                            Esempio: <code>(B6 + B6.1) / A01 * 100</code>
+                            </div>""", unsafe_allow_html=True)
+                        formula_val = st.text_input(
+                            "Formula",
+                            value=cur_formula,
+                            placeholder="es. B6 + B6.1 - B10.1",
+                            key=f"formula_{schema_sel}_{voce}",
+                            label_visibility="collapsed",
+                        )
+                        config_updated[voce]['formula'] = formula_val.strip()
+                        # Live preview: mostra i codici rilevati
+                        if formula_val.strip():
+                            import re as _re
+                            tokens = _re.findall(r'[A-Za-z][A-Za-z0-9._]*', formula_val)
+                            refs = [t for t in tokens if t in config]
+                            missing = [t for t in tokens if t not in config and not t.replace('.','').isdigit()]
+                            if refs:
+                                st.caption("✅ Voci trovate: " + ", ".join(refs))
+                            if missing:
+                                st.caption("⚠️ Non trovate: " + ", ".join(missing))
 
                 with cols[5]:
                     if st.button("✕", key=f"del_voce_{schema_sel}_{voce}", help="Rimuovi voce"):
