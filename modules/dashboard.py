@@ -129,7 +129,7 @@ def render_dashboard():
     pf_conf = None
     if anno_conf != '— nessuno —':
         mesi_num      = {m[5:] for m in cols_filtro}
-        cols_conf_raw = [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in mesi_num and c != '_tipo']
+        cols_conf_raw = [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in mesi_num and c not in ('_tipo','_cod')]
         if cols_conf_raw:
             pf_conf = pivot[cols_conf_raw + meta_cols].copy()
             pf_conf['_PERIODO'] = pf_conf[cols_conf_raw].sum(axis=1)
