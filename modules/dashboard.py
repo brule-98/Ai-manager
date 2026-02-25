@@ -2,6 +2,7 @@
 dashboard.py — CE Matrix con drill-down, dark theme, DM Sans.
 """
 import streamlit as st
+import streamlit.components.v1 as _st_comp
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -205,17 +206,11 @@ def _render_kpi_cards(kpi, kpi_conf, anno_conf):
 
 def _render_tabella_ce(ca, pf, dettaglio, cols_show, pf_conf,
                         anno_conf, mostra_bud, budget, mesi_filtro, schema_cfg=None):
-    """
-    Matrice CE: colonne=mesi, righe=voci.
-    Toggle drill-down via JavaScript onclick (non <details>) perché <tr> non può
-    stare dentro <details><td> — il browser lo estrude dal DOM.
-    Righe di dettaglio: display:none di default → visibili al click.
-    """
+    """CE Matrix con toggle JS via st.components.v1.html (Streamlit non esegue <script> in markdown)."""
+    import re as _re
 
-    # ID sicuro per JS (rimuove caratteri non validi)
-    def safe_id(s):
-        import re
-        return re.sub(r'[^a-zA-Z0-9]', '_', str(s))[:40]
+    def sid(s):
+        return _re.sub(r'[^a-zA-Z0-9]', '_', str(s))[:30]
 
     def fv(v, dash=False):
         try:
@@ -223,97 +218,27 @@ def _render_tabella_ce(ca, pf, dettaglio, cols_show, pf_conf,
             if dash and f == 0:
                 return '<span style="color:#334155">—</span>'
             s = f"{abs(f):,.0f}".replace(",","X").replace(".",",").replace("X",".")
-            clr = "#10B981" if f > 0 else ("#EF4444" if f < 0 else "#475569")
-            txt = f"({s})" if f < 0 else s
-            return f'<span style="color:{clr}">{txt}</span>'
+            c = "#10B981" if f > 0 else ("#EF4444" if f < 0 else "#475569")
+            t = f"({s})" if f < 0 else s
+            return f'<span style="color:{c}">{t}</span>'
         except Exception:
             return '<span style="color:#334155">—</span>'
 
-    st.markdown("""
-<style>
-.ce-wrap { overflow-x:auto; margin-top:8px; }
-.ce-tbl  { width:100%; border-collapse:collapse;
-           font-family:'DM Sans',sans-serif; font-size:0.81rem; }
-
-/* HEADER */
-.ce-tbl th {
-  padding:8px 10px; font-size:0.67rem; text-transform:uppercase;
-  letter-spacing:1px; color:#475569; font-weight:700;
-  text-align:right; border-bottom:2px solid rgba(201,168,76,0.3);
-  white-space:nowrap; background:#0B1422; position:sticky; top:0; z-index:2;
-}
-.ce-tbl th.lft { text-align:left; min-width:200px; }
-
-/* CELLE */
-.ce-tbl td { padding:6px 10px; border-bottom:1px solid rgba(255,255,255,0.025); }
-.ce-tbl td.lft { text-align:left; }
-.ce-tbl td.rgt { text-align:right; white-space:nowrap;
-                 font-family:'DM Mono',monospace; font-size:0.78rem; }
-
-/* CONTABILE — riga principale cliccabile */
-.ce-voce { cursor:pointer; }
-.ce-voce:hover { background:rgba(255,255,255,0.025); }
-.ce-voce td.lft { color:#94A3B8; font-weight:500; }
-
-/* TOGGLE ARROW */
-.ce-arr { display:inline-block; font-size:9px; color:#334155;
-          margin-right:6px; transition:transform 0.18s; }
-.ce-arr.open { transform:rotate(90deg); color:#2563EB; }
-
-/* DETAIL ROWS — nascosti di default */
-.ce-det { display:none; }
-.ce-det td { border-bottom:1px solid rgba(255,255,255,0.018); }
-.ce-det td.lft { color:#4B5563; padding-left:32px; font-size:0.73rem;
-                  border-left:2px solid rgba(37,99,235,0.2); }
-.ce-det td.rgt { font-size:0.72rem; color:#4B5563; }
-
-/* SUBTOTALE */
-.ce-sub { background:rgba(255,255,255,0.04);
-          border-top:1px solid rgba(255,255,255,0.09);
-          border-bottom:1px solid rgba(255,255,255,0.09); }
-.ce-sub td.lft { color:#E2E8F0; font-weight:700; font-size:0.84rem; }
-.ce-sub td.rgt { font-weight:700; }
-
-/* TOTALE */
-.ce-tot { background:rgba(201,168,76,0.08);
-          border-top:2px solid rgba(201,168,76,0.4);
-          border-bottom:2px solid rgba(201,168,76,0.4); }
-.ce-tot td.lft { color:#C9A84C; font-weight:800; font-size:0.87rem; }
-.ce-tot td.rgt { color:#C9A84C; font-weight:800; }
-
-/* SEPARATORE */
-.ce-sep td { padding:3px 0; border:none; }
-</style>
-<script>
-function ceToggle(id) {
-    var rows = document.querySelectorAll('.det-' + id);
-    var arr  = document.getElementById('arr-' + id);
-    var isOpen = rows.length > 0 && rows[0].style.display !== 'none';
-    rows.forEach(function(r) { r.style.display = isOpen ? 'none' : ''; });
-    if (arr) arr.classList.toggle('open', !isOpen);
-}
-</script>
-""", unsafe_allow_html=True)
-
-    # Intestazioni
-    ncols_extra = (2 if pf_conf is not None else 0) + (2 if mostra_bud and budget else 0)
+    # Header
     hdr = '<th class="lft">Voce</th>'
     for c in cols_show:
-        hdr += f'<th>{c.replace("-","‑")}</th>'
-    hdr += '<th><b style="color:#C9A84C">Totale</b></th>'
+        hdr += f'<th class="rgt">{c}</th>'
+    hdr += '<th class="rgt" style="color:#C9A84C;border-left:1px solid rgba(201,168,76,0.2)">Totale</th>'
     if pf_conf is not None:
-        hdr += f'<th>vs {anno_conf}</th><th>Δ%</th>'
+        hdr += f'<th class="rgt">vs {anno_conf}</th><th class="rgt">&#916;%</th>'
     if mostra_bud and budget:
-        hdr += '<th>Budget</th><th>Scost.</th>'
+        hdr += '<th class="rgt">Budget</th><th class="rgt">Scost.</th>'
 
     rows_html = ""
-
     for voce in pf.index:
         tipo = _safe_str(pf.loc[voce, '_tipo']) if '_tipo' in pf.columns else 'contabile'
-        ncols_tot = 2 + len(cols_show) + ncols_extra
-
         if tipo == 'separatore':
-            rows_html += f'<tr class="ce-sep"><td colspan="{ncols_tot}" style="height:6px"></td></tr>'
+            rows_html += '<tr class="sep"><td colspan="99"></td></tr>'
             continue
 
         try:
@@ -321,12 +246,11 @@ function ceToggle(id) {
         except Exception:
             val_tot = 0.0
 
-        # Valori mensili
         tds = ""
         for c in cols_show:
             v = _safe_scalar(pf.loc[voce, c]) if c in pf.columns else 0.0
             tds += f'<td class="rgt">{fv(v, dash=(tipo=="contabile"))}</td>'
-        tds += f'<td class="rgt"><b>{fv(val_tot)}</b></td>'
+        tds += f'<td class="rgt tot-col"><b>{fv(val_tot)}</b></td>'
 
         if pf_conf is not None:
             val_c = 0.0
@@ -337,57 +261,97 @@ function ceToggle(id) {
                     pass
             dp = (val_tot - val_c) / abs(val_c) * 100 if val_c != 0 else 0.0
             dc = "#10B981" if dp >= 0 else "#EF4444"
-            dp_str = (f'<span style="color:{dc}">{dp:+.1f}%</span>'
-                      if val_c != 0 else '<span style="color:#334155">—</span>')
-            tds += f'<td class="rgt">{fv(val_c, dash=True)}</td><td class="rgt">{dp_str}</td>'
+            dp_s = f'<span style="color:{dc}">{dp:+.1f}%</span>' if val_c != 0 else '<span style="color:#334155">—</span>'
+            tds += f'<td class="rgt">{fv(val_c, dash=True)}</td><td class="rgt">{dp_s}</td>'
 
         if mostra_bud and budget:
             bud_tot = sum(budget.get(voce, {}).get(m, 0) for m in cols_show)
-            scost   = val_tot - bud_tot
-            tds += f'<td class="rgt">{fv(bud_tot, dash=True)}</td><td class="rgt">{fv(scost, dash=True)}</td>'
+            scost = val_tot - bud_tot
+            tds += f'<td class="rgt">{fv(bud_tot,dash=True)}</td><td class="rgt">{fv(scost,dash=True)}</td>'
 
         if tipo == 'contabile':
             has_det = (voce in dettaglio and dettaglio[voce] is not None
                        and not dettaglio[voce].empty)
-            vid = safe_id(voce)
-            n_badge = (f' <span style="font-size:0.64rem;color:#334155;font-weight:400">'
-                       f'({len(dettaglio[voce])})</span>') if has_det else ''
+            vid = sid(voce)
             if has_det:
-                arr = f'<span class="ce-arr" id="arr-{vid}">►</span>'
-                onclick = f'onclick="ceToggle(\'{vid}\')"'
-                nome_td = f'<td class="lft">{arr}{voce}{n_badge}</td>'
-                rows_html += f'<tr class="ce-voce" {onclick}>{nome_td}{tds}</tr>'
-
-                # Righe dettaglio — display:none di default
+                n = len(dettaglio[voce])
+                badge = f' <span class="nbadge">({n})</span>'
+                rows_html += (
+                    f'<tr class="voce clickable" onclick="tog(\'{vid}\')">' 
+                    f'<td class="lft"><span class="arr" id="a{vid}">&#9658;</span>{voce}{badge}</td>{tds}</tr>'
+                )
                 det = dettaglio[voce]
                 for conto in det.index:
-                    dcells = f'<td class="lft">{str(conto)}</td>'
+                    dc2 = f'<td class="lft det-n">{str(conto)}</td>'
                     for c in cols_show:
                         sv = _safe_scalar(det.loc[conto, c]) if c in det.columns else 0.0
-                        dcells += f'<td class="rgt">{fv(sv, dash=True)}</td>'
-                    sv_tot = _safe_scalar(det.loc[conto, 'TOTALE']) if 'TOTALE' in det.columns else 0.0
-                    dcells += f'<td class="rgt"><b>{fv(sv_tot, dash=True)}</b></td>'
+                        dc2 += f'<td class="rgt det-v">{fv(sv, dash=True)}</td>'
+                    sv_t = _safe_scalar(det.loc[conto,'TOTALE']) if 'TOTALE' in det.columns else 0.0
+                    dc2 += f'<td class="rgt det-v"><b>{fv(sv_t)}</b></td>'
                     if pf_conf is not None:
-                        dcells += '<td></td><td></td>'
+                        dc2 += '<td></td><td></td>'
                     if mostra_bud and budget:
-                        dcells += '<td></td><td></td>'
-                    # display:none inline — JS lo togghierà
-                    rows_html += (f'<tr class="ce-det det-{vid}" style="display:none">'
-                                  f'{dcells}</tr>')
+                        dc2 += '<td></td><td></td>'
+                    rows_html += f'<tr class="det d{vid}" style="display:none">{dc2}</tr>'
             else:
-                rows_html += f'<tr class="ce-voce"><td class="lft">{voce}</td>{tds}</tr>'
-
+                rows_html += f'<tr class="voce"><td class="lft" style="padding-left:10px">{voce}</td>{tds}</tr>'
         elif tipo == 'subtotale':
-            rows_html += f'<tr class="ce-sub"><td class="lft">{voce}</td>{tds}</tr>'
+            rows_html += f'<tr class="sub"><td class="lft">{voce}</td>{tds}</tr>'
         elif tipo == 'totale':
-            rows_html += f'<tr class="ce-tot"><td class="lft">{voce}</td>{tds}</tr>'
+            rows_html += f'<tr class="tot"><td class="lft">{voce}</td>{tds}</tr>'
 
-    table = (f'<div class="ce-wrap"><table class="ce-tbl">'
-             f'<thead><tr>{hdr}</tr></thead><tbody>{rows_html}</tbody></table></div>')
-    st.markdown(table, unsafe_allow_html=True)
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0B1422;font-family:'DM Sans',system-ui,sans-serif;font-size:13px;color:#94A3B8}}
+table{{width:100%;border-collapse:collapse}}
+th{{padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#475569;
+    font-weight:700;border-bottom:2px solid rgba(201,168,76,0.3);white-space:nowrap;
+    background:#0B1422;position:sticky;top:0;z-index:2}}
+th.lft{{text-align:left;min-width:220px}}
+th.rgt{{text-align:right}}
+td{{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,0.025)}}
+td.lft{{text-align:left}}
+td.rgt{{text-align:right;font-variant-numeric:tabular-nums;font-size:12px}}
+.clickable{{cursor:pointer}}
+.clickable:hover td{{background:rgba(37,99,235,0.06)}}
+.arr{{display:inline-block;font-size:9px;color:#334155;margin-right:7px;transition:transform 0.15s;vertical-align:middle}}
+.arr.open{{transform:rotate(90deg);color:#3B82F6}}
+.nbadge{{font-size:11px;color:#334155;font-weight:400;margin-left:4px}}
+.det-n{{color:#475569!important;padding-left:34px!important;font-size:12px;border-left:2px solid rgba(37,99,235,0.2)}}
+.det-v{{font-size:11px;color:#475569!important}}
+.sub{{background:rgba(255,255,255,0.04);border-top:1px solid rgba(255,255,255,0.09)}}
+.sub td.lft{{color:#E2E8F0;font-weight:700;font-size:14px}}
+.sub td.rgt{{font-weight:700;color:#E2E8F0}}
+.tot{{background:rgba(201,168,76,0.09);border-top:2px solid rgba(201,168,76,0.4);border-bottom:2px solid rgba(201,168,76,0.4)}}
+.tot td.lft{{color:#C9A84C;font-weight:800;font-size:14px}}
+.tot td.rgt{{color:#C9A84C;font-weight:800}}
+.sep td{{border:none;height:6px!important;padding:0}}
+.tot-col{{border-left:1px solid rgba(201,168,76,0.15)}}
+</style>
+</head><body>
+<div style="overflow-x:auto">
+<table><thead><tr>{hdr}</tr></thead><tbody>{rows_html}</tbody></table>
+</div>
+<script>
+function tog(id){{
+  document.querySelectorAll('.d'+id).forEach(function(r){{
+    var show=r.style.display==='none';
+    r.style.display=show?'':'none';
+  }});
+  var a=document.getElementById('a'+id);
+  if(a)a.classList.toggle('open');
+}}
+</script>
+</body></html>"""
+
+    n_main = sum(1 for v in pf.index
+                 if (_safe_str(pf.loc[v,'_tipo']) if '_tipo' in pf.columns else 'c') != 'separatore')
+    height = max(300, n_main * 38 + 100)
+    _st_comp.html(html, height=height, scrolling=True)
 
     # Export
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     exp = []
     for voce in pf.index:
         tipo = _safe_str(pf.loc[voce, '_tipo']) if '_tipo' in pf.columns else 'contabile'
@@ -395,12 +359,12 @@ function ceToggle(id) {
         r = {"Voce": voce, "Tipo": tipo}
         for c in cols_show:
             r[c] = _safe_scalar(pf.loc[voce, c]) if c in pf.columns else 0.0
-        r["TOTALE"] = _safe_scalar(pf.loc[voce, '_PERIODO']) if '_PERIODO' in pf.columns else 0.0
+        r["TOTALE"] = _safe_scalar(pf.loc[voce,'_PERIODO']) if '_PERIODO' in pf.columns else 0.0
         exp.append(r)
     if exp:
         import pandas as _pd
         csv = _pd.DataFrame(exp).to_csv(index=False, decimal=",", sep=";").encode("utf-8-sig")
-        st.download_button("⬇️ Esporta CE (CSV)", data=csv,
+        st.download_button("&#11015;&#65039; Esporta CE (CSV)", data=csv,
                            file_name=f"CE_{ca}.csv", mime="text/csv")
 
 
