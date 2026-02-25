@@ -161,20 +161,53 @@ div[data-testid="stExpander"] summary {
 }
 div[data-testid="stExpander"] p { color: var(--text-second) !important; }
 
-/* ── 9. INPUTS ── */
-.stTextInput input, .stTextArea textarea, .stNumberInput input {
-  background: rgba(255,255,255,0.04) !important;
-  color: var(--text-primary) !important;
-  border: 1px solid rgba(255,255,255,0.1) !important;
+/* ── 9. INPUTS — target baseweb WRAPPER (dove Streamlit mette sfondo bianco) ── */
+/* Il problema è div[data-baseweb="base-input"] che ha bg bianco di default */
+div[data-baseweb="base-input"],
+div[data-baseweb="textarea"] {
+  background: #0B1422 !important;
+  background-color: #0B1422 !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
   border-radius: 8px !important;
+}
+div[data-baseweb="base-input"]:focus-within,
+div[data-baseweb="textarea"]:focus-within {
+  background: #0B1422 !important;
+  border-color: #C9A84C !important;
+  box-shadow: 0 0 0 3px rgba(201,168,76,0.14) !important;
+}
+/* Input DENTRO il wrapper: background transparent così eredita il dark del wrapper */
+div[data-baseweb="base-input"] input,
+div[data-baseweb="textarea"] textarea {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: #F1F5F9 !important;
+  -webkit-text-fill-color: #F1F5F9 !important;
+  caret-color: #C9A84C !important;
   font-family: 'DM Sans', sans-serif !important;
   font-size: 0.87rem !important;
 }
-.stTextInput input:focus, .stTextArea textarea:focus, .stNumberInput input:focus {
-  border-color: var(--gold) !important;
-  box-shadow: 0 0 0 3px rgba(201,168,76,0.12) !important;
+div[data-baseweb="base-input"] input::placeholder,
+div[data-baseweb="textarea"] textarea::placeholder {
+  color: #3D5068 !important;
+  -webkit-text-fill-color: #3D5068 !important;
 }
-.stTextInput input::placeholder, .stTextArea textarea::placeholder { color: var(--text-faint) !important; }
+/* Autofill browser override */
+div[data-baseweb="base-input"] input:-webkit-autofill,
+div[data-baseweb="base-input"] input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 60px #0B1422 inset !important;
+  -webkit-text-fill-color: #F1F5F9 !important;
+}
+/* Label */
+.stTextInput label, .stTextArea label, .stNumberInput label,
+.stSelectbox label, .stMultiSelect label, .stSlider label,
+.stRadio label, .stCheckbox label, .stFileUploader label {
+  color: var(--text-muted) !important;
+  font-size: 0.74rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.6px !important;
+  text-transform: uppercase !important;
+}
 .stTextInput label, .stTextArea label, .stNumberInput label,
 .stSelectbox label, .stRadio label, .stCheckbox label,
 .stFileUploader label, .stSlider label, .stMultiSelect label {
