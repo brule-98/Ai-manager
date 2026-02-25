@@ -148,7 +148,7 @@ def render_cfo_agent():
         return
 
     # ── AUTO KPI DASHBOARD ────────────────────────────────────────────────────
-    _render_auto_kpi_dashboard(pivot, mesi, budget, ca)
+    _render_auto_kpi_dashboard(pivot, mesi, budget, ca, schema_cfg)
 
     st.markdown("<hr style='border-color:rgba(201,168,76,0.12);margin:24px 0'>", unsafe_allow_html=True)
 
@@ -215,7 +215,7 @@ def _is_sep(pivot, voce):
 # AUTO KPI DASHBOARD
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _render_auto_kpi_dashboard(pivot, mesi, budget, ca):
+def _render_auto_kpi_dashboard(pivot, mesi, budget, ca, schema_cfg=None):
     """Dashboard KPI automatica visuale — si carica sempre all'apertura."""
     # Selettore periodo rapido
     c1, c2, c3, c4 = st.columns([2, 3, 2, 1])
