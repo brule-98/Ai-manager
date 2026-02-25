@@ -301,7 +301,7 @@ def render_configurazione():
                 }
                 row_bg, row_accent = tipo_colors.get(tipo_voce, ('transparent', '#475569'))
 
-                desc_display = label_map.get(voce, cfg.get('descrizione_override', voce))
+                desc_display = cfg.get('descrizione_override') or label_map.get(voce) or voce
                 config_updated[voce] = dict(cfg)
 
                 cols = st.columns([1, 2, 3, 2, 1, 1])
