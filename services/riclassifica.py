@@ -214,6 +214,34 @@ def _applica_schema_con_totali(pivot_contabili, schema_config, label_map):
             tipi.append('contabile')
             cods.append(cod)
 
+        elif tipo == 'formula':
+            formula_str = cfg.get('formula', '').strip()
+            form_d = {c: 0.0 for c in all_cols}
+            if formula_str:
+                import re as _re
+                for c in mesi_cols:
+                    # Build local namespace with all voce_vals for this column
+                    ns = {vc.replace('.','_').replace(' ','_'): voce_vals.get(vc, {}).get(c, 0.0)
+                          for vc in voce_vals}
+                    # Also support original cod keys with dots (replace . with _)
+                    ns_orig = {vc: voce_vals.get(vc, {}).get(c, 0.0) for vc in voce_vals}
+                    # Replace voce codes in formula with safe identifiers
+                    safe_f = formula_str
+                    for vc in sorted(voce_vals.keys(), key=len, reverse=True):
+                        safe_key = vc.replace('.','_').replace(' ','_')
+                        safe_f = safe_f.replace(vc, safe_key)
+                    try:
+                        result_val = float(eval(safe_f, {"__builtins__": {}}, ns))
+                        form_d[c] = result_val
+                    except Exception:
+                        form_d[c] = 0.0
+                form_d['TOTALE'] = sum(form_d.get(c, 0.0) for c in mesi_cols)
+            voce_vals[cod] = form_d
+            labels.append(desc)
+            data_rows.append(form_d)
+            tipi.append('formula')
+            cods.append(cod)
+
         elif tipo in ('subtotale', 'totale'):
             voci_include = cfg.get('voci_include', [])
             if voci_include:
