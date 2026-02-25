@@ -164,16 +164,16 @@ def render_cfo_agent():
     ])
 
     with tab_chat:
-        _render_chat(ca, cliente, pivot, mesi, budget)
+        _render_chat(ca, cliente, pivot, mesi, budget, schema_cfg)
 
     with tab_analytics:
-        _render_visual_analytics(pivot, mesi, budget)
+        _render_visual_analytics(pivot, mesi, budget, schema_cfg)
 
     with tab_report:
-        _render_report_gen(ca, cliente, pivot, mesi, budget)
+        _render_report_gen(ca, cliente, pivot, mesi, budget, schema_cfg)
 
     with tab_anomalie:
-        _render_anomalie(ca, cliente, pivot, mesi, budget)
+        _render_anomalie(ca, cliente, pivot, mesi, budget, schema_cfg)
 
     with tab_market:
         _render_market_intel(ca, cliente, mesi)
@@ -362,7 +362,7 @@ def _render_auto_kpi_dashboard(pivot, mesi, budget, ca, schema_cfg=None):
 # TAB 1 — CHAT CFO
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _render_chat(ca, cliente, pivot, mesi, budget):
+def _render_chat(ca, cliente, pivot, mesi, budget, schema_cfg=None):
     """Chat CFO AI con contesto finanziario completo e analisi causa-effetto."""
     if 'cfo_chat_history' not in st.session_state:
         st.session_state['cfo_chat_history'] = []
@@ -594,7 +594,7 @@ def _render_chat(ca, cliente, pivot, mesi, budget):
 # TAB 2 — VISUAL ANALYTICS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _render_visual_analytics(pivot, mesi, budget):
+def _render_visual_analytics(pivot, mesi, budget, schema_cfg=None):
     st.markdown(f"<div class='section-header'>📊 Visual Analytics — Analisi Avanzata</div>", unsafe_allow_html=True)
 
     voci = list(pivot.index)
@@ -948,7 +948,7 @@ def _render_visual_analytics(pivot, mesi, budget):
 # TAB 3 — GENERA REPORT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _render_report_gen(ca, cliente, pivot, mesi, budget):
+def _render_report_gen(ca, cliente, pivot, mesi, budget, schema_cfg=None):
     st.markdown(f"<div class='section-header'>📋 Genera Report Automatici con AI</div>", unsafe_allow_html=True)
     st.markdown(f"""
     <div class='info-callout'>
@@ -1121,7 +1121,7 @@ def _render_report_gen(ca, cliente, pivot, mesi, budget):
 # TAB 4 — ANOMALIE & ALERT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _render_anomalie(ca, cliente, pivot, mesi, budget):
+def _render_anomalie(ca, cliente, pivot, mesi, budget, schema_cfg=None):
     st.markdown(f"<div class='section-header'>🔍 Anomalie & Alert Intelligenti</div>", unsafe_allow_html=True)
 
     # Statistica automatica
