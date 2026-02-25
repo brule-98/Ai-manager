@@ -30,6 +30,16 @@ TIPI_VOCE = {
     'separatore': 'Separatore / riga vuota',
 }
 
+KPI_ROLES = {
+    '':            '— nessuno —',
+    'ricavi':      '📈 Ricavi',
+    'ebitda':      '💹 EBITDA / MOL',
+    'ebit':        '📊 EBIT',
+    'utile_netto': '🏆 Utile Netto',
+    'personale':   '👥 Costo Personale',
+    'acquisti':    '🛒 Acquisti / Materie',
+}
+
 
 def render_configurazione():
     ca = st.session_state.get('cliente_attivo')
@@ -353,11 +363,32 @@ def render_configurazione():
                                           disabled=(tipo_sel == 'separatore'))
                     config_updated[voce]['segno'] = segno
 
+                    # Ruolo KPI (solo per contabile, subtotale, totale)
+                    if tipo_sel != 'separatore':
+                        cur_role = cfg.get('kpi_role', '')
+                        role_opts = list(KPI_ROLES.keys())
+                        role_idx  = role_opts.index(cur_role) if cur_role in role_opts else 0
+                        new_role  = st.selectbox(
+                            "🔑 Ruolo KPI",
+                            role_opts,
+                            index=role_idx,
+                            format_func=lambda x: KPI_ROLES.get(x, x),
+                            key=f"kpirole_{schema_sel}_{voce}"
+                        )
+                        config_updated[voce]['kpi_role'] = new_role
+
                 with cols[5]:
                     if st.button("✕", key=f"del_voce_{schema_sel}_{voce}", help="Rimuovi voce"):
                         schemi[schema_sel] = {k: v for k, v in config_updated.items() if k != voce}
                         save_cliente({'schemi': schemi})
                         st.rerun()
+
+            # ── LEGENDA RUOLI KPI ──────────────────────────────────────────
+            if any(config.get(v, {}).get('kpi_role') for v in config):
+                st.caption("🔑 Ruoli KPI assegnati: " + " · ".join(
+                    f"`{KPI_ROLES.get(config[v].get('kpi_role',''),'?')}` → {v}"
+                    for v in voci_ordinate if config.get(v, {}).get('kpi_role')
+                ))
 
             # Salva
             st.markdown("---")
@@ -393,6 +424,7 @@ def render_configurazione():
                             'ordine': ord_v,
                             'tipo': tipo_v,
                             'segno': segno_v,
+                            'kpi_role': '',
                             'subtotale': (tipo_v in ('subtotale', 'totale')),
                             'descrizione_override': label_v.strip() or cod,
                             'formula': '',
