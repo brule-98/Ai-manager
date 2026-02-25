@@ -144,7 +144,7 @@ def _applica_schema_con_totali(pivot_contabili, schema_config, label_map):
         cfg  = schema_config[cod]
         tipo = cfg.get('tipo', 'contabile')
         # Display label (può essere personalizzato dall'utente)
-        desc = cfg.get('descrizione_override', label_map.get(cod, cod))
+        desc = cfg.get('descrizione_override') or label_map.get(cod) or cod
         # Lookup label = il label che è effettivamente nell'indice di pivot_contabili
         # Priorità: label_map[cod] (da df_ricl) > cod > desc
         lookup_label = label_map.get(cod, cod)
