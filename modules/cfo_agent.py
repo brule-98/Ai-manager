@@ -250,15 +250,15 @@ def _render_auto_kpi_dashboard(pivot, mesi, budget, ca):
         st.warning("Nessun dato per il periodo.")
         return
 
-    kpi = calcola_kpi_finanziari(pivot, cols_sel)
+    kpi = calcola_kpi_finanziari(pivot, cols_sel, schema_cfg)
 
     # Confronto
     kpi_conf = {}
     if anno_conf != "— nessun confronto —":
         mesi_num = {m[5:] for m in mesi_sel}
-        cols_conf = [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in mesi_num]
+        cols_conf = [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in mesi_num and c not in ('_tipo','_cod','TOTALE')]
         if cols_conf:
-            kpi_conf = calcola_kpi_finanziari(pivot, cols_conf)
+            kpi_conf = calcola_kpi_finanziari(pivot, cols_conf, schema_cfg)
 
     # Budget period
     bud_kpi = {}
@@ -478,14 +478,14 @@ def _render_chat(ca, cliente, pivot, mesi, budget):
             context_parts.append("## CONTO ECONOMICO RICLASSIFICATO\n```\n" + ce_text + "\n```")
 
         if inc_kpi:
-            kpi_data = calcola_kpi_finanziari(pivot, mesi_ctx)
+            kpi_data = calcola_kpi_finanziari(pivot, mesi_ctx, schema_cfg)
             kpi_text = format_kpi_for_prompt(kpi_data)
             context_parts.append("## KPI PERIODO\n" + kpi_text)
 
             # Aggiungi trend mensile per ogni KPI
             kpi_trend = []
             for m in mesi_ctx:
-                kpi_m = calcola_kpi_finanziari(pivot, [m])
+                kpi_m = calcola_kpi_finanziari(pivot, [m], schema_cfg)
                 if kpi_m:
                     kpi_trend.append(
                         f"{m}: Ricavi={kpi_m.get('ricavi',0):,.0f}€ "
@@ -802,7 +802,7 @@ def _render_visual_analytics(pivot, mesi, budget):
         n_m = st.slider("Mesi di analisi:", 3, len(mesi), min(6, len(mesi)), key="kd_n")
         mesi_kd = mesi[-n_m:]
         cols_kd = [c for c in mesi_kd if c in pivot.columns]
-        kpi = calcola_kpi_finanziari(pivot, cols_kd)
+        kpi = calcola_kpi_finanziari(pivot, cols_kd, schema_cfg)
 
         if kpi:
             st.markdown("##### 📐 Margini — Evoluzione mensile")
@@ -810,7 +810,7 @@ def _render_visual_analytics(pivot, mesi, budget):
             for m in mesi_kd:
                 if m not in pivot.columns:
                     continue
-                kpi_m = calcola_kpi_finanziari(pivot, [m])
+                kpi_m = calcola_kpi_finanziari(pivot, [m], schema_cfg)
                 for k, label, color in [
                     ('ebitda_margin', 'EBITDA Margin', C['green']),
                     ('net_margin',    'Net Margin',    C['gold']),
@@ -998,7 +998,7 @@ def _render_report_gen(ca, cliente, pivot, mesi, budget):
             st.error("Nessun dato per il periodo selezionato."); return
 
         ce_text    = format_ce_for_prompt(pivot, cols_sel)
-        kpi_data   = calcola_kpi_finanziari(pivot, cols_sel)
+        kpi_data   = calcola_kpi_finanziari(pivot, cols_sel, schema_cfg)
         kpi_text   = format_kpi_for_prompt(kpi_data)
         bud_text   = format_budget_variance_for_prompt(pivot, budget, cols_sel) if budget else ""
 
