@@ -308,9 +308,31 @@ def _tab_mappatura(ca, cliente):
 
     st.markdown("---")
     if st.button("💾 Salva Mappatura", type="primary", key="save_map_btn"):
-        save_cliente({'mapping': get_mapping()})
-        n_ok = len([v for v in get_mapping().values() if v])
-        st.success("✅ {} conti mappati salvati con successo.".format(n_ok))
+        # Salva mapping
+        curr_map = get_mapping()
+        save_cliente({'mapping': curr_map})
+
+        # SYNC DESCRIZIONI: aggiorna descrizione_override in tutti gli schemi
+        # così il pivot mostrerà sempre le descrizioni, non i codici
+        cliente_now = get_cliente()
+        schemi = cliente_now.get('schemi', {})
+        if schemi and label_map:
+            for schema_nome, schema_cfg in schemi.items():
+                changed = False
+                for cod_voce, vcfg in schema_cfg.items():
+                    desc = label_map.get(cod_voce, '')
+                    if desc and desc != cod_voce:
+                        cur_ov = vcfg.get('descrizione_override', '')
+                        # Aggiorna solo se l'override attuale è vuoto o uguale al codice
+                        if not cur_ov or cur_ov.strip() == cod_voce.strip():
+                            vcfg['descrizione_override'] = desc
+                            changed = True
+                if changed:
+                    schemi[schema_nome] = schema_cfg
+            save_cliente({'schemi': schemi})
+
+        n_ok = len([v for v in curr_map.values() if v])
+        st.success("✅ {} conti mappati salvati. Descrizioni schema sincronizzate.".format(n_ok))
 
 
 # ── TAB API KEY ────────────────────────────────────────────────────────────────
