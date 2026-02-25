@@ -16,19 +16,43 @@ from services.data_utils import find_column, to_numeric
 # ─── LABEL MAP HELPERS ───────────────────────────────────────────────────────
 
 def get_label_map(df_ricl):
-    """cod_riclassifica → label descrittivo (da df_ricl)."""
+    """cod_riclassifica → label descrittivo (da df_ricl).
+    Cerca le colonne con molti alias e usa la prima coppia valida trovata.
+    """
     if df_ricl is None or df_ricl.empty:
         return {}
-    col_cod  = find_column(df_ricl, ['Codice','codice','ID','id','Voce','voce'])
-    col_desc = find_column(df_ricl, ['Descrizione','descrizione','Nome','nome','Label','label'])
+    col_cod  = find_column(df_ricl, [
+        'Codice','codice','CODE','code','ID','id',
+        'CodVoce','cod_voce','CodiceVoce','codice_voce',
+        'Voce','voce','Key','key','Cod'
+    ])
+    col_desc = find_column(df_ricl, [
+        'Descrizione','descrizione','DESCRIZIONE',
+        'Nome','nome','NOME','Label','label','LABEL',
+        'Description','Desc','desc','Testo','testo',
+        'DescrizioneVoce','descrizione_voce','NomeVoce'
+    ])
     if not col_cod:
-        return {}
+        # Fallback: assume first col = code, second = description
+        cols = list(df_ricl.columns)
+        if len(cols) >= 2:
+            col_cod, col_desc = cols[0], cols[1]
+        else:
+            return {}
     result = {}
     for _, row in df_ricl.iterrows():
         cod  = str(row[col_cod]).strip()
-        desc = str(row[col_desc]).strip() if (col_desc and col_desc != col_cod) else cod
-        if cod and cod.lower() not in ('nan', 'none', ''):
-            result[cod] = desc if desc.lower() not in ('nan', 'none', '') else cod
+        if col_desc and col_desc != col_cod:
+            desc = str(row[col_desc]).strip()
+        else:
+            desc = ''
+        bad = ('nan', 'none', '', 'n/a', 'na')
+        if cod and cod.lower() not in bad:
+            # Solo memorizza desc se è diversa dal codice (altrimenti è inutile)
+            if desc and desc.lower() not in bad and desc != cod:
+                result[cod] = desc
+            else:
+                result[cod] = cod  # almeno il codice stesso
     return result
 
 
@@ -144,7 +168,11 @@ def _applica_schema_con_totali(pivot_contabili, schema_config, label_map):
         cfg  = schema_config[cod]
         tipo = cfg.get('tipo', 'contabile')
         # Display label (sempre la descrizione leggibile)
-        desc = cfg.get('descrizione_override') or label_map.get(cod) or cod
+        # Priority: non-trivial override > label_map > cod itself
+        _ov = cfg.get('descrizione_override', '')
+        # Se l'override è il codice stesso (es. 'B10.1') non è utile → ignora
+        _ov = _ov if (_ov and _ov.strip() and _ov.strip().lower() != cod.lower()) else ''
+        desc = _ov or label_map.get(cod) or cod
         # Lookup nel pivot: il pivot_base.index è già stato rinominato con le descrizioni
         # quindi cerchiamo prima per desc, poi per label_map originale, poi per cod
         lookup_label = desc
