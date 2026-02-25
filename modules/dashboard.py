@@ -107,7 +107,12 @@ def render_dashboard():
                 anno_y = st.selectbox("Anno", anni, key="d_ay")
                 mesi_filtro = [m for m in mesi if m.startswith(str(anno_y))]
         with c3:
-            anno_conf = st.selectbox("Confronta vs", ['— nessuno —'] + anni, key="d_conf")
+            from datetime import datetime as _dt
+            _anno_max = max(int(a) for a in anni) if anni else _dt.now().year
+            _anni_ext = [str(a) for a in range(max(_anno_max, _dt.now().year)+2, min(int(a) for a in anni)-1 if anni else _dt.now().year-4, -1)]
+            _anni_opt_labels = [a if a in anni else a+" ↩" for a in _anni_ext]
+            _conf_raw = st.selectbox("Confronta vs", ['— nessuno —'] + _anni_opt_labels, key="d_conf")
+            anno_conf = _conf_raw.rstrip(" ↩") if _conf_raw != '— nessuno —' else '— nessuno —' 
         with c4:
             mostra_bud = st.checkbox("Budget", value=bool(budget), key="d_bud")
 
