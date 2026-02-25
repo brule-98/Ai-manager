@@ -314,9 +314,12 @@ def render_configurazione():
 
                 with cols[1]:
                     tipo_icon = {'contabile':'🔵','subtotale':'🟡','totale':'🔴','separatore':'⬜'}.get(tipo_voce,'')
+                    # Mostra descrizione (display), codice in piccolo sotto
                     st.markdown(
-                        f"<div style='padding:10px 4px;font-size:0.82rem;"
-                        f"color:{row_accent};font-weight:600'>{tipo_icon} {voce}</div>",
+                        f"<div style='padding:6px 4px;'>"
+                        f"<div style='font-size:0.82rem;color:{row_accent};font-weight:600'>{tipo_icon} {desc_display}</div>"
+                        f"<div style='font-size:0.68rem;color:#334155;font-family:monospace'>{voce}</div>"
+                        f"</div>",
                         unsafe_allow_html=True)
 
                 with cols[2]:
