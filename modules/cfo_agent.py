@@ -64,6 +64,40 @@ PLOTLY_THEME = dict(
 )
 
 
+def _anno_selectbox(label, anni_dati, key, include_none_label=None, extra_range=3):
+    """
+    Selectbox anno con range esteso oltre i dati disponibili.
+    anni_dati: anni ricavati dai dati (es. ['2024','2023'])
+    extra_range: quanti anni aggiungere oltre il massimo dei dati
+    """
+    from datetime import datetime
+    anno_corrente = datetime.now().year
+    anni_dati_int = sorted(set(int(a) for a in anni_dati if str(a).isdigit()), reverse=True)
+    max_anno = max(anni_dati_int) if anni_dati_int else anno_corrente
+    min_anno = min(anni_dati_int) if anni_dati_int else anno_corrente - 3
+    # Estendi: da min_anno a max(anno_corrente + extra_range)
+    tutti_anni = [str(a) for a in range(max(max_anno, anno_corrente) + extra_range, min_anno - 1, -1)]
+    # Evidenzia anni con dati aggiungendo marker
+    anni_str = []
+    for a in tutti_anni:
+        if a in [str(x) for x in anni_dati_int]:
+            anni_str.append(a)          # ha dati
+        else:
+            anni_str.append(a + " ↩")  # no dati (futuro/fuori range)
+    options = ([include_none_label] if include_none_label else []) + anni_str
+    # Default = primo anno con dati
+    default_idx = 0
+    if not include_none_label and anni_str:
+        for i, a in enumerate(anni_str):
+            if a.rstrip(" ↩") in [str(x) for x in anni_dati_int]:
+                default_idx = i
+                break
+    sel = st.selectbox(label, options, index=default_idx, key=key, label_visibility="collapsed")
+    if sel == include_none_label:
+        return None
+    return sel.rstrip(" ↩")  # ritorna l'anno pulito senza il marker
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ENTRY POINT
 # ─────────────────────────────────────────────────────────────────────────────
@@ -191,11 +225,11 @@ def _render_auto_kpi_dashboard(pivot, mesi, budget, ca):
     with c2:
         anni = sorted(set(m[:4] for m in mesi), reverse=True)
         if mode in ["YTD", "Anno completo"]:
-            anno = st.selectbox("Anno:", anni, key="kpi_anno", label_visibility="collapsed")
+            anno = _anno_selectbox("Anno", anni, "kpi_anno")
         else:
             anno = anni[0] if anni else None
     with c3:
-        anno_conf = st.selectbox("vs:", ["— nessun confronto —"] + anni, key="kpi_conf_anno", label_visibility="collapsed")
+        anno_conf = _anno_selectbox("vs", anni, "kpi_conf_anno", include_none_label="— nessun confronto —")
     with c4:
         show_budget_kpi = st.checkbox("Budget", value=bool(budget), key="kpi_show_bud")
 
@@ -668,12 +702,12 @@ def _render_visual_analytics(pivot, mesi, budget):
         anni = sorted(set(m[:4] for m in mesi), reverse=True)
         c1, c2 = st.columns(2)
         with c1:
-            anno_att = st.selectbox("Periodo attuale (anno):", anni, key="bridge_att")
+            anno_att = _anno_selectbox("Periodo attuale", anni, "bridge_att")
             mesi_att = [m for m in mesi if m.startswith(str(anno_att))]
         with c2:
             altri_anni = [a for a in anni if a != anno_att]
-            if altri_anni:
-                anno_prec = st.selectbox("Periodo confronto (anno):", altri_anni, key="bridge_prec")
+            if True:
+                anno_prec = _anno_selectbox("Confronto", anni, "bridge_prec", include_none_label="— nessun confronto —")
                 mesi_prec = [m for m in mesi if m.startswith(str(anno_prec))]
             else:
                 # Splitta l'anno in S1 e S2
@@ -883,8 +917,9 @@ def _render_visual_analytics(pivot, mesi, budget):
                     insidetextfont=dict(size=11, color='white'),
                     hovertemplate='<b>%{label}</b><br>%{value:,.0f} €<br>%{percent}<extra></extra>',
                 ))
+                _theme_no_legend = {k: v for k, v in PLOTLY_THEME.items() if k != 'legend'}
                 fig.update_layout(
-                    **PLOTLY_THEME, height=300,
+                    **_theme_no_legend, height=300,
                     title=dict(text=title, x=0.5, font=dict(size=12, color='#C9A84C')),
                     margin=dict(l=0, r=0, t=40, b=0),
                     showlegend=True,
@@ -940,7 +975,7 @@ def _render_report_gen(ca, cliente, pivot, mesi, budget):
         ], key="rpt_tipo")
     with c2:
         if "Annuale" in tipo_report or "Board" in tipo_report:
-            anno = st.selectbox("Anno:", anni_disp, key="rpt_anno")
+            anno = _anno_selectbox("Anno", anni_disp, "rpt_anno")
             mesi_sel = [m for m in mesi if m.startswith(str(anno))]
         else:
             mese_sel = st.selectbox("Mese:", mesi, index=len(mesi)-1, key="rpt_mese")
