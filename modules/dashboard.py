@@ -206,17 +206,22 @@ def _render_kpi_cards(kpi, kpi_conf, anno_conf):
 def _render_tabella_ce(ca, pf, dettaglio, cols_show, pf_conf,
                         anno_conf, mostra_bud, budget, mesi_filtro, schema_cfg=None):
     """
-    Matrice CE con:
-    - colonne = mesi selezionati + Totale Periodo
-    - righe contabili espandibili con <details>/<summary>
-    - righe subtotale / totale stilate diversamente
-    - confronto anno e budget come colonne aggiuntive
+    Matrice CE: colonne=mesi, righe=voci.
+    Toggle drill-down via JavaScript onclick (non <details>) perché <tr> non può
+    stare dentro <details><td> — il browser lo estrude dal DOM.
+    Righe di dettaglio: display:none di default → visibili al click.
     """
+
+    # ID sicuro per JS (rimuove caratteri non validi)
+    def safe_id(s):
+        import re
+        return re.sub(r'[^a-zA-Z0-9]', '_', str(s))[:40]
 
     def fv(v, dash=False):
         try:
             f = float(v)
-            if dash and f == 0: return '<span style="color:#334155">—</span>'
+            if dash and f == 0:
+                return '<span style="color:#334155">—</span>'
             s = f"{abs(f):,.0f}".replace(",","X").replace(".",",").replace("X",".")
             clr = "#10B981" if f > 0 else ("#EF4444" if f < 0 else "#475569")
             txt = f"({s})" if f < 0 else s
@@ -224,75 +229,91 @@ def _render_tabella_ce(ca, pf, dettaglio, cols_show, pf_conf,
         except Exception:
             return '<span style="color:#334155">—</span>'
 
-    # ── CSS per la tabella ──
     st.markdown("""
 <style>
-.ce-wrap { overflow-x:auto; margin-top:12px; }
-.ce-table {
-  width:100%; border-collapse:collapse;
-  font-family:'DM Sans',sans-serif; font-size:0.81rem;
-}
-.ce-table th {
-  padding:7px 10px; font-size:0.67rem; text-transform:uppercase;
+.ce-wrap { overflow-x:auto; margin-top:8px; }
+.ce-tbl  { width:100%; border-collapse:collapse;
+           font-family:'DM Sans',sans-serif; font-size:0.81rem; }
+
+/* HEADER */
+.ce-tbl th {
+  padding:8px 10px; font-size:0.67rem; text-transform:uppercase;
   letter-spacing:1px; color:#475569; font-weight:700;
-  text-align:right; border-bottom:2px solid rgba(201,168,76,0.25);
-  white-space:nowrap; background:rgba(13,22,37,0.8);
-  position:sticky; top:0; z-index:2;
+  text-align:right; border-bottom:2px solid rgba(201,168,76,0.3);
+  white-space:nowrap; background:#0B1422; position:sticky; top:0; z-index:2;
 }
-.ce-table th.left { text-align:left; min-width:180px; }
-.ce-table td { padding:5px 10px; }
-.ce-table td.left { text-align:left; }
-.ce-table td.right { text-align:right; white-space:nowrap; }
-/* contabile rows */
-.ce-row-c td.left { color:#94A3B8; font-weight:400; }
-.ce-row-c:hover { background:rgba(255,255,255,0.015); }
-/* subtotale rows */
-.ce-row-s { background:rgba(255,255,255,0.035); border-top:1px solid rgba(255,255,255,0.10); }
-.ce-row-s td.left { color:#E2E8F0; font-weight:700; font-size:0.84rem; }
-/* totale rows */
-.ce-row-t { background:rgba(201,168,76,0.08);
-            border-top:2px solid rgba(201,168,76,0.35);
-            border-bottom:2px solid rgba(201,168,76,0.35); }
-.ce-row-t td.left { color:#C9A84C; font-weight:800; font-size:0.87rem; }
-/* separator rows */
-.ce-row-sep td { padding:3px 0; }
-/* detail rows inside <details> */
-.ce-detail-row td.left { color:#475569; padding-left:28px; font-size:0.74rem; }
-.ce-detail-row td.right { font-size:0.74rem; color:#475569; }
-/* summary (voce name) — arrow expand */
-summary.ce-sum {
-  cursor:pointer; list-style:none; display:flex;
-  align-items:center; gap:5px; color:#94A3B8;
-}
-summary.ce-sum::before {
-  content:'▶'; font-size:8px; color:#475569;
-  transition:transform 0.15s; flex-shrink:0;
-}
-details[open] summary.ce-sum::before { transform:rotate(90deg); }
+.ce-tbl th.lft { text-align:left; min-width:200px; }
+
+/* CELLE */
+.ce-tbl td { padding:6px 10px; border-bottom:1px solid rgba(255,255,255,0.025); }
+.ce-tbl td.lft { text-align:left; }
+.ce-tbl td.rgt { text-align:right; white-space:nowrap;
+                 font-family:'DM Mono',monospace; font-size:0.78rem; }
+
+/* CONTABILE — riga principale cliccabile */
+.ce-voce { cursor:pointer; }
+.ce-voce:hover { background:rgba(255,255,255,0.025); }
+.ce-voce td.lft { color:#94A3B8; font-weight:500; }
+
+/* TOGGLE ARROW */
+.ce-arr { display:inline-block; font-size:9px; color:#334155;
+          margin-right:6px; transition:transform 0.18s; }
+.ce-arr.open { transform:rotate(90deg); color:#2563EB; }
+
+/* DETAIL ROWS — nascosti di default */
+.ce-det { display:none; }
+.ce-det td { border-bottom:1px solid rgba(255,255,255,0.018); }
+.ce-det td.lft { color:#4B5563; padding-left:32px; font-size:0.73rem;
+                  border-left:2px solid rgba(37,99,235,0.2); }
+.ce-det td.rgt { font-size:0.72rem; color:#4B5563; }
+
+/* SUBTOTALE */
+.ce-sub { background:rgba(255,255,255,0.04);
+          border-top:1px solid rgba(255,255,255,0.09);
+          border-bottom:1px solid rgba(255,255,255,0.09); }
+.ce-sub td.lft { color:#E2E8F0; font-weight:700; font-size:0.84rem; }
+.ce-sub td.rgt { font-weight:700; }
+
+/* TOTALE */
+.ce-tot { background:rgba(201,168,76,0.08);
+          border-top:2px solid rgba(201,168,76,0.4);
+          border-bottom:2px solid rgba(201,168,76,0.4); }
+.ce-tot td.lft { color:#C9A84C; font-weight:800; font-size:0.87rem; }
+.ce-tot td.rgt { color:#C9A84C; font-weight:800; }
+
+/* SEPARATORE */
+.ce-sep td { padding:3px 0; border:none; }
 </style>
+<script>
+function ceToggle(id) {
+    var rows = document.querySelectorAll('.det-' + id);
+    var arr  = document.getElementById('arr-' + id);
+    var isOpen = rows.length > 0 && rows[0].style.display !== 'none';
+    rows.forEach(function(r) { r.style.display = isOpen ? 'none' : ''; });
+    if (arr) arr.classList.toggle('open', !isOpen);
+}
+</script>
 """, unsafe_allow_html=True)
 
-    # ── Intestazioni ──
-    th = lambda txt, left=False: f"<th class=\"{'left' if left else ''}\">{txt}</th>"
-
-    header = th("Voce", left=True)
+    # Intestazioni
+    ncols_extra = (2 if pf_conf is not None else 0) + (2 if mostra_bud and budget else 0)
+    hdr = '<th class="lft">Voce</th>'
     for c in cols_show:
-        header += th(c.replace("-", "‑"))
-    header += th("<b style='color:#C9A84C'>Totale</b>")
+        hdr += f'<th>{c.replace("-","‑")}</th>'
+    hdr += '<th><b style="color:#C9A84C">Totale</b></th>'
     if pf_conf is not None:
-        header += th(f"vs {anno_conf}") + th("Δ %")
+        hdr += f'<th>vs {anno_conf}</th><th>Δ%</th>'
     if mostra_bud and budget:
-        header += th("Budget") + th("Scost.")
+        hdr += '<th>Budget</th><th>Scost.</th>'
 
-    # ── Righe ──
     rows_html = ""
 
     for voce in pf.index:
         tipo = _safe_str(pf.loc[voce, '_tipo']) if '_tipo' in pf.columns else 'contabile'
+        ncols_tot = 2 + len(cols_show) + ncols_extra
 
         if tipo == 'separatore':
-            ncols = 2 + len(cols_show) + (2 if pf_conf is not None else 0) + (2 if mostra_bud and budget else 0)
-            rows_html += f"<tr class='ce-row-sep'><td colspan='{ncols}' style='height:8px'></td></tr>"
+            rows_html += f'<tr class="ce-sep"><td colspan="{ncols_tot}" style="height:6px"></td></tr>'
             continue
 
         try:
@@ -300,111 +321,88 @@ details[open] summary.ce-sum::before { transform:rotate(90deg); }
         except Exception:
             val_tot = 0.0
 
-        row_cls = {'contabile': 'ce-row-c', 'subtotale': 'ce-row-s', 'totale': 'ce-row-t'}.get(tipo, 'ce-row-c')
-
-        # Nome voce = descrizione (pivot.index) — SEMPRE description, mai codice
-        has_detail = (tipo == 'contabile' and voce in dettaglio
-                      and dettaglio[voce] is not None and not dettaglio[voce].empty)
-        n_conti = len(dettaglio[voce]) if has_detail else 0
-        n_badge = (f" <span style='font-size:0.64rem;color:#334155;font-weight:400'>"
-                   f"({n_conti})</span>") if n_conti else ''
-
-        if has_detail:
-            # <details> senza "open" = collassato di default
-            nome_cell = (f"<details>"
-                         f"<summary class='ce-sum'>{voce}{n_badge}</summary>"
-                         f"_DETAIL_{voce}_"
-                         f"</details>")
-        else:
-            nome_cell = str(voce)
-        td_nome = f"<td class='left'>{nome_cell}</td>"
-
         # Valori mensili
         tds = ""
         for c in cols_show:
             v = _safe_scalar(pf.loc[voce, c]) if c in pf.columns else 0.0
-            tds += f"<td class='right'>{fv(v, dash=(tipo=='contabile'))}</td>"
+            tds += f'<td class="rgt">{fv(v, dash=(tipo=="contabile"))}</td>'
+        tds += f'<td class="rgt"><b>{fv(val_tot)}</b></td>'
 
-        # Totale periodo
-        tds += f"<td class='right'><b>{fv(val_tot)}</b></td>"
-
-        # Confronto anno
         if pf_conf is not None:
-            val_c, dp = 0.0, 0.0
+            val_c = 0.0
             if voce in pf_conf.index and '_PERIODO' in pf_conf.columns:
                 try:
                     val_c = _safe_scalar(pf_conf.loc[voce, '_PERIODO'])
-                    dp = (val_tot - val_c) / abs(val_c) * 100 if val_c != 0 else 0.0
                 except Exception:
                     pass
+            dp = (val_tot - val_c) / abs(val_c) * 100 if val_c != 0 else 0.0
             dc = "#10B981" if dp >= 0 else "#EF4444"
-            dp_str = (f"<span style='color:{dc}'>{dp:+.1f}%</span>" if val_c != 0 else
-                      '<span style="color:#334155">—</span>')
-            tds += f"<td class='right'>{fv(val_c, dash=True)}</td><td class='right'>{dp_str}</td>"
+            dp_str = (f'<span style="color:{dc}">{dp:+.1f}%</span>'
+                      if val_c != 0 else '<span style="color:#334155">—</span>')
+            tds += f'<td class="rgt">{fv(val_c, dash=True)}</td><td class="rgt">{dp_str}</td>'
 
-        # Budget
         if mostra_bud and budget:
-            bud_tot, scost = 0.0, 0.0
-            if voce in budget:
-                bud_tot = sum(budget[voce].get(m, 0) for m in cols_show)
-                scost   = val_tot - bud_tot
-            tds += f"<td class='right'>{fv(bud_tot, dash=True)}</td><td class='right'>{fv(scost, dash=True)}</td>"
+            bud_tot = sum(budget.get(voce, {}).get(m, 0) for m in cols_show)
+            scost   = val_tot - bud_tot
+            tds += f'<td class="rgt">{fv(bud_tot, dash=True)}</td><td class="rgt">{fv(scost, dash=True)}</td>'
 
-        row_html = f"<tr class='{row_cls}'>{td_nome}{tds}</tr>"
+        if tipo == 'contabile':
+            has_det = (voce in dettaglio and dettaglio[voce] is not None
+                       and not dettaglio[voce].empty)
+            vid = safe_id(voce)
+            n_badge = (f' <span style="font-size:0.64rem;color:#334155;font-weight:400">'
+                       f'({len(dettaglio[voce])})</span>') if has_det else ''
+            if has_det:
+                arr = f'<span class="ce-arr" id="arr-{vid}">►</span>'
+                onclick = f'onclick="ceToggle(\'{vid}\')"'
+                nome_td = f'<td class="lft">{arr}{voce}{n_badge}</td>'
+                rows_html += f'<tr class="ce-voce" {onclick}>{nome_td}{tds}</tr>'
 
-        # Dettaglio conto (dentro il <details>, placeholder sostituito)
-        if has_detail:
-            det = dettaglio[voce]
-            det_cols = [c for c in cols_show if c in det.columns]
-            det_rows = ""
-            for conto in det.index:
-                dcells = f"<td class='left'>{str(conto)[:55]}</td>"
-                for c in cols_show:
-                    sv = _safe_scalar(det.loc[conto, c]) if c in det.columns else 0.0
-                    dcells += f"<td class='right'>{fv(sv, dash=True)}</td>"
-                sv_tot = _safe_scalar(det.loc[conto, 'TOTALE']) if 'TOTALE' in det.columns else 0.0
-                dcells += f"<td class='right'><b>{fv(sv_tot, dash=True)}</b></td>"
-                if pf_conf is not None:
-                    dcells += "<td></td><td></td>"
-                if mostra_bud and budget:
-                    dcells += "<td></td><td></td>"
-                det_rows += f"<tr class='ce-detail-row'>{dcells}</tr>"
-            # Inietta det_rows nel placeholder
-            row_html = row_html.replace(f"_DETAIL_{voce}_", det_rows)
+                # Righe dettaglio — display:none di default
+                det = dettaglio[voce]
+                for conto in det.index:
+                    dcells = f'<td class="lft">{str(conto)}</td>'
+                    for c in cols_show:
+                        sv = _safe_scalar(det.loc[conto, c]) if c in det.columns else 0.0
+                        dcells += f'<td class="rgt">{fv(sv, dash=True)}</td>'
+                    sv_tot = _safe_scalar(det.loc[conto, 'TOTALE']) if 'TOTALE' in det.columns else 0.0
+                    dcells += f'<td class="rgt"><b>{fv(sv_tot, dash=True)}</b></td>'
+                    if pf_conf is not None:
+                        dcells += '<td></td><td></td>'
+                    if mostra_bud and budget:
+                        dcells += '<td></td><td></td>'
+                    # display:none inline — JS lo togghierà
+                    rows_html += (f'<tr class="ce-det det-{vid}" style="display:none">'
+                                  f'{dcells}</tr>')
+            else:
+                rows_html += f'<tr class="ce-voce"><td class="lft">{voce}</td>{tds}</tr>'
 
-        rows_html += row_html
+        elif tipo == 'subtotale':
+            rows_html += f'<tr class="ce-sub"><td class="lft">{voce}</td>{tds}</tr>'
+        elif tipo == 'totale':
+            rows_html += f'<tr class="ce-tot"><td class="lft">{voce}</td>{tds}</tr>'
 
-    table_html = f"""
-<div class='ce-wrap'>
-  <table class='ce-table'>
-    <thead><tr>{header}</tr></thead>
-    <tbody>{rows_html}</tbody>
-  </table>
-</div>"""
-    st.markdown(table_html, unsafe_allow_html=True)
+    table = (f'<div class="ce-wrap"><table class="ce-tbl">'
+             f'<thead><tr>{hdr}</tr></thead><tbody>{rows_html}</tbody></table></div>')
+    st.markdown(table, unsafe_allow_html=True)
 
-    # ── Export ──
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-    exp_rows = []
+    # Export
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    exp = []
     for voce in pf.index:
         tipo = _safe_str(pf.loc[voce, '_tipo']) if '_tipo' in pf.columns else 'contabile'
-        if tipo == 'separatore':
-            continue
+        if tipo == 'separatore': continue
         r = {"Voce": voce, "Tipo": tipo}
         for c in cols_show:
             r[c] = _safe_scalar(pf.loc[voce, c]) if c in pf.columns else 0.0
         r["TOTALE"] = _safe_scalar(pf.loc[voce, '_PERIODO']) if '_PERIODO' in pf.columns else 0.0
-        exp_rows.append(r)
-    if exp_rows:
-        csv = pd.DataFrame(exp_rows).to_csv(index=False, decimal=",", sep=";").encode("utf-8-sig")
+        exp.append(r)
+    if exp:
+        import pandas as _pd
+        csv = _pd.DataFrame(exp).to_csv(index=False, decimal=",", sep=";").encode("utf-8-sig")
         st.download_button("⬇️ Esporta CE (CSV)", data=csv,
-                           file_name=f"CE_{ca}_{'-'.join(mesi_filtro[:2])}.csv",
-                           mime="text/csv")
+                           file_name=f"CE_{ca}.csv", mime="text/csv")
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# GRAFICI
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _render_grafici(pivot, mesi, kpi):
     # Filtra voci non separatori
