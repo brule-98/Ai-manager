@@ -122,8 +122,8 @@ def render_dashboard():
 
     # Build pf conservando _tipo
     pf_cols  = [c for c in cols_filtro if c in pivot.columns]
-    tipo_col = ['_tipo'] if '_tipo' in pivot.columns else []
-    pf       = pivot[pf_cols + tipo_col].copy()
+    meta_cols = [c for c in ('_tipo', '_cod') if c in pivot.columns]
+    pf        = pivot[pf_cols + meta_cols].copy()
     pf['_PERIODO'] = pf[pf_cols].sum(axis=1)
 
     pf_conf = None
@@ -131,12 +131,13 @@ def render_dashboard():
         mesi_num      = {m[5:] for m in cols_filtro}
         cols_conf_raw = [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in mesi_num and c != '_tipo']
         if cols_conf_raw:
-            pf_conf = pivot[cols_conf_raw + tipo_col].copy()
+            pf_conf = pivot[cols_conf_raw + meta_cols].copy()
             pf_conf['_PERIODO'] = pf_conf[cols_conf_raw].sum(axis=1)
 
-    kpi = calcola_kpi_finanziari(pivot, cols_filtro)
+    kpi = calcola_kpi_finanziari(pivot, cols_filtro, schema_cfg)
     kpi_conf = calcola_kpi_finanziari(pivot,
-        [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in {m[5:] for m in cols_filtro} and c != '_tipo']
+        [c for c in pivot.columns if c[:4] == anno_conf and c[5:] in {m[5:] for m in cols_filtro} and c not in ('_tipo','_cod')],
+        schema_cfg
     ) if anno_conf != '— nessuno —' else {}
 
     # ── ALERT BUDGET ────────────────────────────────────────────────────────
